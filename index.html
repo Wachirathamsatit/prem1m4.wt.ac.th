@@ -437,7 +437,6 @@
     .ad-body{padding:14px 12px 70px;}
   }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -832,7 +831,7 @@ const D = {
 "เซิร์ฟเวอร์แจ้งข้อผิดพลาด":"Server error","รูปแบบข้อมูลไม่ถูกต้อง":"Invalid data format",
 /* ---------- ADMIN: เมนู ---------- */
 "ระบบจัดการหลังบ้าน":"Back office","หน้าหลัก Admin":"Admin home","ภาพรวมระบบรับสมัคร":"Application system overview",
-"เชื่อมต่อแล้ว":"Connected","เชื่อมต่อ Supabase แล้ว":"Connected to Supabase","โหมดออฟไลน์ (เก็บในเครื่อง)":"Offline mode (stored locally)",
+"เชื่อมต่อแล้ว":"Connected","เชื่อมต่อ Google Sheet แล้ว":"Connected to Google Sheet","โหมดออฟไลน์ (เก็บในเครื่อง)":"Offline mode (stored locally)",
 "รีเฟรช":"Refresh","ออก":"Exit",
 "ตั้งค่าระบบ":"System settings","ตั้งค่าข้อมูลระบบ":"System configuration","ข้อมูลโรงเรียน ค่าสมัคร บัญชีรับเงิน":"School info, fees, bank account",
 "จัดการหลักสูตร":"Courses","ระดับชั้น/วิชาที่เปิดสอบ":"Levels / subjects offered",
@@ -858,7 +857,7 @@ const D = {
 "การจัดผลการสอบ":"Exam results","จัดการผลสอบ":"Manage results","กรอกคะแนนและประกาศผล":"Enter scores and publish results",
 "ประกาศผลแล้ว":"Results published","ผลสอบที่เผยแพร่":"Published results","ดูผลสอบรายคน":"View results per applicant",
 /* ---------- ADMIN: ทั่วไป ---------- */
-"กำลังโหลดข้อมูลจาก Supabase…":"Loading data from Supabase…",
+"กำลังโหลดข้อมูลจาก Google Sheet…":"Loading data from Google Sheet…",
 "ดำเนินการ":"Actions","ไม่มีข้อมูลในหมวดนี้":"No data in this category",
 "ระดับ":"Level","เลขบัตร/พาสปอร์ต":"ID / passport","โทรศัพท์":"Phone","โรงเรียนเดิม":"Previous school",
 "สถานะใบสมัคร":"Application status","สถานะชำระ":"Payment status","สลิป":"Slip","เปิดดู":"View","ไม่มี":"None",
@@ -908,10 +907,10 @@ const D = {
 "ข้อมูลติดต่อ":"Contact info","เปิดรับสมัคร":"Registration open",
 "ประกาศผลสอบหน้าเว็บ":"Show results on website","ยังไม่ประกาศ":"Not yet published","ประกาศแล้ว":"Published",
 "บัญชีรับชำระเงิน":"Payment account","ความปลอดภัยและการเชื่อมต่อ":"Security & connection",
-"รหัสผ่านแอดมิน":"Admin password","Supabase Storage Bucket":"Drive Folder ID (slip storage)",
+"รหัสผ่านแอดมิน":"Admin password","Drive Folder ID (เก็บสลิป)":"Drive Folder ID (slip storage)",
 "ทดสอบการเชื่อมต่อ":"Test connection","จัดการภาพสไลด์หน้าแรก":"Manage homepage slides",
 "บันทึกการตั้งค่า":"Save settings","บันทึกการตั้งค่าเรียบร้อย":"Settings saved",
-"เชื่อมต่อ Supabase สำเร็จ":"Connected to Apps Script",
+"เชื่อมต่อ Apps Script สำเร็จ":"Connected to Apps Script",
 "เชื่อมต่อไม่สำเร็จ ตรวจสอบการ Deploy และสิทธิ์เข้าถึง":"Connection failed — check the deployment and access permissions",
 /* ---------- ADMIN: หลักสูตร / ข่าว ---------- */
 "เพิ่มข่าวประชาสัมพันธ์":"Add announcement","เพิ่มหลักสูตร":"Add course",
@@ -1185,306 +1184,81 @@ const SCHEDULE = {
 };
 let PUBLIC_DEADLINE = new Date(APPLY_DEADLINE);
 
-/* ============ Backend config: Supabase ============ */
-const SUPABASE_URL = "https://wlioblrnaklqyfstenfp.supabase.co";
-const SUPABASE_KEY = "sb_publishable_WzqU6T4z1HRVTSRINKwh-Q_9qfc5v47";
-const SUPABASE_BUCKET = "uploads";
-
-const { createClient } = window.supabase;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false }
-});
+/* ============ Backend config: Google Apps Script + Sheet + Drive ============ */
+const API_URL   = "https://script.google.com/macros/s/AKfycbxxkhDp11eHv46L_bNqEO8cXGsOmevEJWWVKyQSCsgq1V0HR9rlOOGrgFokS5GFBngg0A/exec";
+const SHEET_ID  = "1d4OvF3kLvAhPv8YNQxpi3v7SYboA8hS0Y8HLlu6W5SQ";
+const FOLDER_ID = "1pBpE3ARPKXn8jZmIvjhI0VnIsPdsVzg7";
 
 let API_ONLINE = false;
-let LAST_API_ERROR = '';
 
-function updateConnBadge(){
-  const el = document.getElementById('adConn');
-  if(!el) return;
-  el.textContent = API_ONLINE ? '● เชื่อมต่อ Supabase แล้ว' : '● เชื่อมต่อ Supabase ไม่ได้';
-  el.title = API_ONLINE ? '' : LAST_API_ERROR;
-  el.classList.toggle('off', !API_ONLINE);
-}
+/* POST แบบ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
+   + มี timeout กันหน้าเว็บค้าง + ลองใหม่อัตโนมัติ 1 ครั้งถ้าล้มเหลวชั่วคราว (เช่น Apps Script cold start) */
+const API_TIMEOUT_MS = 20000;
 
-function supabaseError(err){
-  if(!err) return new Error('Supabase ไม่พร้อมใช้งาน');
-  if(err.message) return new Error(err.message);
-  return new Error(String(err));
-}
-
-async function storageUpload_(base64, mime, name, folder='slips'){
-  if(!base64) throw new Error('ไม่พบข้อมูลไฟล์');
-  const safeName = String(name || 'upload').replace(/[^a-zA-Z0-9._-]/g,'_');
-  const ext = (mime || '').split('/')[1] || 'jpg';
-  const path = `${folder}/${Date.now()}_${crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}_${safeName.replace(/\.[^.]+$/,'')}.${ext}`;
-  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-  const { error } = await supabase.storage.from(SUPABASE_BUCKET).upload(path, bytes, {
-    contentType: mime || 'image/jpeg',
-    upsert: false,
-    cacheControl: '3600'
-  });
-  if(error) throw supabaseError(error);
-  const { data } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
-  return { path, url:data.publicUrl };
-}
-
-async function storageDelete_(path){
-  if(!path) return;
-  const { error } = await supabase.storage.from(SUPABASE_BUCKET).remove([path]);
-  if(error) console.warn('[Supabase Storage] delete:', error.message);
-}
-
-async function api(action, payload = {}){
+async function apiOnce_(action, payload, timeoutMs){
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = setTimeout(() => { if(controller) controller.abort(); }, timeoutMs);
   try{
-    let data = null;
-
-    switch(action){
-      case 'ping': {
-        const { error } = await supabase.from('settings').select('key').limit(1);
-        if(error) throw supabaseError(error);
-        data = {ok:true, provider:'supabase'};
-        break;
-      }
-
-      case 'testDrive': {
-        const { data:files, error } = await supabase.storage.from(SUPABASE_BUCKET).list('', {limit:1});
-        if(error) throw supabaseError(error);
-        data = {ok:true, bucket:SUPABASE_BUCKET, files:files || []};
-        break;
-      }
-
-      case 'listApplicants': {
-        const { data:rows, error } = await supabase.from('applicants').select('id,data,created_at').order('created_at',{ascending:false});
-        if(error) throw supabaseError(error);
-        data = (rows || []).map(r => Object.assign({}, r.data || {}, {id:r.id}));
-        break;
-      }
-
-      case 'saveApplicant': {
-        const rec = Object.assign({}, payload.record || {});
-        const id = rec.id || ('A' + Date.now());
-        rec.id = id;
-        const { error } = await supabase.from('applicants').upsert({
-          id,
-          data: rec,
-          created_at: rec.createdAt || new Date().toISOString()
-        }, {onConflict:'id'});
-        if(error) throw supabaseError(error);
-        data = rec;
-        break;
-      }
-
-      case 'submitApplication': {
-        const rec = Object.assign({}, payload.record || {});
-        if(!rec.id) rec.id = 'A' + Date.now() + Math.floor(Math.random()*1000);
-
-        let slipUrl = '';
-        let slipPath = '';
-        if(payload.slip && payload.slip.data){
-          const up = await storageUpload_(payload.slip.data, payload.slip.mime, payload.slip.name, 'slips');
-          slipUrl = up.url;
-          slipPath = up.path;
-        }
-
-        rec.slipUrl = slipUrl;
-        rec.slipPath = slipPath;
-        rec.slipName = payload.slip ? (payload.slip.name || '') : '';
-        rec.code = rec.code || ('WT' + new Date().getFullYear() + String(Date.now()).slice(-6));
-
-        const { error } = await supabase.from('applicants').insert({
-          id:rec.id,
-          data:rec,
-          created_at:rec.createdAt || new Date().toISOString()
-        });
-        if(error){
-          if(slipPath) await storageDelete_(slipPath);
-          throw supabaseError(error);
-        }
-        data = {code:rec.code, id:rec.id, record:rec};
-        break;
-      }
-
-      case 'patchApplicants': {
-        const ids = Array.isArray(payload.ids) ? payload.ids : [];
-        const patch = payload.patch || {};
-        for(const id of ids){
-          const {data:row,error:getErr} = await supabase.from('applicants').select('id,data').eq('id',id).single();
-          if(getErr) throw supabaseError(getErr);
-          const next = Object.assign({}, row.data || {}, patch, {id});
-          const {error} = await supabase.from('applicants').update({data:next}).eq('id',id);
-          if(error) throw supabaseError(error);
-        }
-        data = true;
-        break;
-      }
-
-      case 'deleteApplicants': {
-        const ids = Array.isArray(payload.ids) ? payload.ids : [];
-        if(ids.length){
-          const {data:rows,error:getErr} = await supabase.from('applicants').select('id,data').in('id',ids);
-          if(getErr) throw supabaseError(getErr);
-          const paths = (rows || []).map(r => r.data && r.data.slipPath).filter(Boolean);
-          if(paths.length) await supabase.storage.from(SUPABASE_BUCKET).remove(paths);
-          const {error} = await supabase.from('applicants').delete().in('id',ids);
-          if(error) throw supabaseError(error);
-        }
-        data = true;
-        break;
-      }
-
-      case 'getStatus': {
-        const {data:rows,error} = await supabase.from('applicants').select('id,data');
-        if(error) throw supabaseError(error);
-        const needle = String(payload.idNumber || '').trim().toLowerCase();
-        const row = (rows || []).find(r => String(r.data && r.data.idNumber || '').trim().toLowerCase() === needle && !(r.data && r.data.deleted));
-        data = row ? Object.assign({}, row.data || {}, {id:row.id}) : null;
-        break;
-      }
-
-      case 'getSettings': {
-        const {data:row,error} = await supabase.from('settings').select('data').eq('key','main').maybeSingle();
-        if(error) throw supabaseError(error);
-        data = row ? (row.data || {}) : {};
-        break;
-      }
-
-      case 'saveSettings': {
-        const {error} = await supabase.from('settings').upsert({
-          key:'main',
-          data:payload.settings || {},
-          updated_at:new Date().toISOString()
-        }, {onConflict:'key'});
-        if(error) throw supabaseError(error);
-        data = payload.settings || {};
-        break;
-      }
-
-      case 'listCourses':
-      case 'listNews':
-      case 'listRooms': {
-        const table = action === 'listCourses' ? 'courses' : action === 'listNews' ? 'news' : 'rooms';
-        const {data:rows,error} = await supabase.from(table).select('id,data').order('sort_order',{ascending:true});
-        if(error) throw supabaseError(error);
-        data = (rows || []).map(r => Object.assign({}, r.data || {}, {id:r.id}));
-        break;
-      }
-
-      case 'saveCourses':
-      case 'saveNews':
-      case 'saveRooms': {
-        const table = action === 'saveCourses' ? 'courses' : action === 'saveNews' ? 'news' : 'rooms';
-        const rows = Array.isArray(payload.rows) ? payload.rows : [];
-        const {data:oldRows,error:oldErr} = await supabase.from(table).select('id,data');
-        if(oldErr) throw supabaseError(oldErr);
-        const keep = new Set(rows.map((r,i)=>String(r.id || '')));
-        const removeIds = (oldRows || []).map(r=>r.id).filter(id=>!keep.has(String(id)));
-        if(removeIds.length){
-          const {error} = await supabase.from(table).delete().in('id',removeIds);
-          if(error) throw supabaseError(error);
-        }
-        for(let i=0;i<rows.length;i++){
-          const r = Object.assign({}, rows[i]);
-          const id = r.id || crypto.randomUUID();
-          delete r.id;
-          const {error} = await supabase.from(table).upsert({id,data:r,sort_order:i},{onConflict:'id'});
-          if(error) throw supabaseError(error);
-        }
-        data = rows;
-        break;
-      }
-
-      case 'listSlides': {
-        const {data:rows,error} = await supabase.from('slides').select('id,data,sort_order').order('sort_order',{ascending:true});
-        if(error) throw supabaseError(error);
-        data = (rows || []).map(r => Object.assign({}, r.data || {}, {id:r.id}));
-        break;
-      }
-
-      case 'saveSlides': {
-        const rows = Array.isArray(payload.rows) ? payload.rows : [];
-        for(let i=0;i<rows.length;i++){
-          const r = Object.assign({}, rows[i]);
-          const id = r.id || crypto.randomUUID();
-          delete r.id;
-          const {error} = await supabase.from('slides').upsert({id,data:r,sort_order:i},{onConflict:'id'});
-          if(error) throw supabaseError(error);
-        }
-        const ids = rows.map(r=>String(r.id)).filter(Boolean);
-        const {data:existing,error:exErr} = await supabase.from('slides').select('id');
-        if(exErr) throw supabaseError(exErr);
-        const remove = (existing || []).map(r=>r.id).filter(id=>!ids.includes(String(id)));
-        if(remove.length){
-          const {error} = await supabase.from('slides').delete().in('id',remove);
-          if(error) throw supabaseError(error);
-        }
-        const {data:finalRows,error:finalErr} = await supabase.from('slides').select('id,data').order('sort_order',{ascending:true});
-        if(finalErr) throw supabaseError(finalErr);
-        data = (finalRows || []).map(r=>Object.assign({},r.data||{},{id:r.id}));
-        break;
-      }
-
-      case 'addSlide': {
-        const up = await storageUpload_(payload.data, payload.mime || 'image/jpeg', payload.name || 'slide.jpg', 'slides');
-        const {data:rows,error:listErr} = await supabase.from('slides').select('sort_order').order('sort_order',{ascending:false}).limit(1);
-        if(listErr) throw supabaseError(listErr);
-        const nextOrder = rows && rows.length ? Number(rows[0].sort_order || 0) + 1 : 0;
-        const id = crypto.randomUUID();
-        const rec = {img:up.url, storagePath:up.path, caption:payload.caption||'', captionEn:payload.captionEn||''};
-        const {error} = await supabase.from('slides').insert({id,data:rec,sort_order:nextOrder});
-        if(error){ await storageDelete_(up.path); throw supabaseError(error); }
-        const {data:finalRows,error:finalErr} = await supabase.from('slides').select('id,data').order('sort_order',{ascending:true});
-        if(finalErr) throw supabaseError(finalErr);
-        data = (finalRows || []).map(r=>Object.assign({},r.data||{},{id:r.id}));
-        break;
-      }
-
-      case 'replaceSlide': {
-        const {data:old,error:oldErr} = await supabase.from('slides').select('id,data').eq('id',payload.id).single();
-        if(oldErr) throw supabaseError(oldErr);
-        const up = await storageUpload_(payload.data, payload.mime || 'image/jpeg', payload.name || 'slide.jpg', 'slides');
-        const next = Object.assign({}, old.data || {}, {img:up.url, storagePath:up.path});
-        const {error} = await supabase.from('slides').update({data:next}).eq('id',payload.id);
-        if(error){ await storageDelete_(up.path); throw supabaseError(error); }
-        if(old.data && old.data.storagePath) await storageDelete_(old.data.storagePath);
-        const {data:finalRows,error:finalErr} = await supabase.from('slides').select('id,data').order('sort_order',{ascending:true});
-        if(finalErr) throw supabaseError(finalErr);
-        data = (finalRows || []).map(r=>Object.assign({},r.data||{},{id:r.id}));
-        break;
-      }
-
-      case 'deleteSlide': {
-        const {data:old,error:oldErr} = await supabase.from('slides').select('data').eq('id',payload.id).single();
-        if(oldErr) throw supabaseError(oldErr);
-        const {error} = await supabase.from('slides').delete().eq('id',payload.id);
-        if(error) throw supabaseError(error);
-        if(old.data && old.data.storagePath) await storageDelete_(old.data.storagePath);
-        const {data:finalRows,error:finalErr} = await supabase.from('slides').select('id,data').order('sort_order',{ascending:true});
-        if(finalErr) throw supabaseError(finalErr);
-        data = (finalRows || []).map(r=>Object.assign({},r.data||{},{id:r.id}));
-        break;
-      }
-
-      default:
-        throw new Error('ไม่รู้จักคำสั่ง: ' + action);
+    const res = await fetch(API_URL, {
+      method : 'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
+      body   : JSON.stringify(Object.assign({action, sheetId:SHEET_ID, folderId:FOLDER_ID}, payload)),
+      signal : controller ? controller.signal : undefined
+    });
+    if(!res.ok) throw new Error('เซิร์ฟเวอร์ตอบกลับผิดปกติ (HTTP ' + res.status + ') — ตรวจสอบว่า Deploy เป็น "Anyone" แล้วหรือยัง');
+    const json = await res.json();
+    if(json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์แจ้งข้อผิดพลาด');
+    return json.data;
+  }catch(err){
+    if(err && err.name === 'AbortError'){
+      throw new Error('เชื่อมต่อ Google Sheet ใช้เวลานานเกินกำหนด (' + (timeoutMs/1000) + ' วินาที)');
     }
-
+    if(err instanceof TypeError){
+      throw new Error('เชื่อมต่อเครือข่ายไม่ได้ (Failed to fetch) — ตรวจสอบอินเทอร์เน็ตหรือ URL ของ Apps Script');
+    }
+    throw err;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+async function api(action, payload = {}, timeoutMs = API_TIMEOUT_MS){
+  try{
+    const data = await apiOnce_(action, payload, timeoutMs);
     API_ONLINE = true;
     updateConnBadge();
     return data;
-  }catch(err){
-    API_ONLINE = false;
-    LAST_API_ERROR = (err && err.message) ? err.message : String(err);
-    updateConnBadge();
-    throw err;
+  }catch(firstErr){
+    /* ลองใหม่อัตโนมัติ 1 ครั้ง เผื่อเป็นปัญหาชั่วคราว (เช่น Apps Script เพิ่งตื่นจาก cold start) */
+    await new Promise(r => setTimeout(r, 700));
+    try{
+      const data = await apiOnce_(action, payload, timeoutMs);
+      API_ONLINE = true;
+      updateConnBadge();
+      return data;
+    }catch(secondErr){
+      API_ONLINE = false;
+      LAST_API_ERROR = (secondErr && secondErr.message) ? secondErr.message : String(secondErr);
+      updateConnBadge();
+      throw secondErr;
+    }
   }
 }
 
-async function apiSafe(action, payload = {}, fallback = null){
-  try { return await api(action, payload); }
-  catch(err){
-    console.warn('[Supabase ออฟไลน์]', action, LAST_API_ERROR);
+let LAST_API_ERROR = '';
+async function apiSafe(action, payload = {}, fallback = null, timeoutMs = API_TIMEOUT_MS){
+  try{
+    return await api(action, payload, timeoutMs);
+  }catch(err){
+    console.warn('[API ออฟไลน์]', action, LAST_API_ERROR);
     return fallback;
   }
+}
+function updateConnBadge(){
+  const el = document.getElementById('adConn');
+  if(!el) return;
+  el.textContent = API_ONLINE ? '● เชื่อมต่อ Google Sheet แล้ว' : '● เชื่อมต่อเซิร์ฟเวอร์ไม่ได้';
+  el.title = API_ONLINE ? '' : LAST_API_ERROR;
+  el.classList.toggle('off', !API_ONLINE);
 }
 
 const DEFAULT_SETTINGS = {
@@ -1496,7 +1270,7 @@ const DEFAULT_SETTINGS = {
   examSubjects:[{key:'sTh',name:'ภาษาไทย',max:25},{key:'sMa',name:'คณิตศาสตร์',max:25},{key:'sSc',name:'วิทยาศาสตร์',max:25},{key:'sEn',name:'ภาษาอังกฤษ',max:25}]
 };
 
-/* ชั้นกลาง: คุยกับ Supabase ผ่าน Apps Script โดยตรงเท่านั้น — ไม่มีโหมดออฟไลน์/แคชในเครื่อง
+/* ชั้นกลาง: คุยกับ Google Sheet ผ่าน Apps Script โดยตรงเท่านั้น — ไม่มีโหมดออฟไลน์/แคชในเครื่อง
    คำสั่งอ่าน (apiSafe) ถ้าเชื่อมต่อไม่ได้ จะคืนค่าว่างเปล่า ไม่ใช่ข้อมูลเก่าที่เคยแคชไว้
    คำสั่งบันทึก (api) ถ้าเชื่อมต่อไม่ได้ จะแจ้งเตือนผู้ใช้ทันทีและโยน error ต่อ ไม่ถือว่าบันทึกสำเร็จ */
 async function apiOrToast(action, payload, failMsg){
@@ -1655,7 +1429,7 @@ function showToast(msg){
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
 }
 
-/* ============ slideshow (แชร์ผ่าน Supabase + Drive — ทุกเครื่องเห็นเหมือนกัน) ============ */
+/* ============ slideshow (แชร์ผ่าน Google Sheet + Drive — ทุกเครื่องเห็นเหมือนกัน) ============ */
 let slides = DEFAULT_SLIDES.slice();  // สไลด์ตัวอย่างชั่วคราว ก่อนโหลดจากเซิร์ฟเวอร์
 let current = 0;
 let SLIDES_SYNCED_AT = 0;
@@ -1755,7 +1529,7 @@ slipInput.addEventListener('change', ()=>{
   reader.readAsDataURL(f);
 });
 
-/* ============ submit application -> ส่งเข้า Supabase โดยตรงเท่านั้น ============ */
+/* ============ submit application -> ส่งเข้า Google Sheet โดยตรงเท่านั้น ============ */
 function hashCode(str){ let h=0; for(let i=0;i<str.length;i++){ h=(h*31 + str.charCodeAt(i))>>>0; } return h; }
 
 function fileToBase64(file){
@@ -2046,7 +1820,7 @@ async function reloadAdminData(){
   applySettingsToSite();
 
   if(!API_ONLINE){
-    body.innerHTML = '<div class="ad-empty">⚠️ เชื่อมต่อ Supabase ไม่ได้<br><small>' + esc(LAST_API_ERROR || 'ตรวจสอบการ Deploy/อินเทอร์เน็ต') + '<br>กด “รีเฟรช” เพื่อลองใหม่</small></div>';
+    body.innerHTML = '<div class="ad-empty">⚠️ เชื่อมต่อ Google Sheet ไม่ได้<br><small>' + esc(LAST_API_ERROR || 'ตรวจสอบการ Deploy/อินเทอร์เน็ต') + '<br>กด “รีเฟรช” เพื่อลองใหม่</small></div>';
     return;
   }
   goPage(CUR_PAGE);
@@ -2488,13 +2262,13 @@ PAGES.settings = () => {
     <div class="ad-card"><h4>ความปลอดภัยและการเชื่อมต่อ</h4>
       <div class="ad-form-grid">
         ${f('adminPass','รหัสผ่านแอดมิน')}
-        <div class="ad-f"><label>Supabase Project URL</label><input value="${SUPABASE_URL}" readonly></div>
-        <div class="ad-f"><label>Supabase Storage Bucket</label><input value="${SUPABASE_BUCKET}" readonly></div>
-        
+        <div class="ad-f"><label>Google Sheet ID</label><input value="${SHEET_ID}" readonly></div>
+        <div class="ad-f"><label>Drive Folder ID (เก็บสลิป)</label><input value="${FOLDER_ID}" readonly></div>
+        <div class="ad-f"><label>Apps Script Web App</label><input value="${API_URL}" readonly></div>
       </div>
       <div class="ad-toolbar" style="margin-top:12px">
         <button class="btn-sm" id="btnPing" type="button">🔌 ทดสอบการเชื่อมต่อ</button>
-        <button class="btn-sm" id="btnDrive" type="button">🗂️ ทดสอบ Supabase Storage</button>
+        <button class="btn-sm" id="btnDrive" type="button">📁 ทดสอบ DriveApp</button>
         <button class="btn-sm" id="btnSlides" type="button">🖼️ จัดการภาพสไลด์หน้าแรก</button>
       </div>
     </div>
@@ -2511,11 +2285,11 @@ PAGES.settings = () => {
   };
   document.getElementById('btnPing').onclick = async () => {
     const r = await apiSafe('ping', {}, null);
-    showToast(r ? 'เชื่อมต่อ Supabase สำเร็จ' : 'เชื่อมต่อไม่สำเร็จ: ' + (LAST_API_ERROR || 'ตรวจสอบการ Deploy และสิทธิ์เข้าถึง'));
+    showToast(r ? 'เชื่อมต่อ Apps Script สำเร็จ' : 'เชื่อมต่อไม่สำเร็จ: ' + (LAST_API_ERROR || 'ตรวจสอบการ Deploy และสิทธิ์เข้าถึง'));
   };
   document.getElementById('btnDrive').onclick = async () => {
     const r = await apiSafe('testDrive', {}, null);
-    showToast(r && r.ok ? `Supabase Storage ใช้งานได้: ${r.folderName}` : 'Supabase Storage ใช้งานไม่ได้: ' + (LAST_API_ERROR || 'ตรวจสอบสิทธิ์และ Folder ID'));
+    showToast(r && r.ok ? `DriveApp ใช้งานได้: ${r.folderName}` : 'DriveApp ใช้งานไม่ได้: ' + (LAST_API_ERROR || 'ตรวจสอบสิทธิ์และ Folder ID'));
   };
   document.getElementById('btnSlides').onclick = () => goPage('slides');
 };
@@ -2655,7 +2429,7 @@ async function slideMove(i, d){
 }
 PAGES.slides = async () => {
   const body = document.getElementById('adBody');
-  body.innerHTML = '<div class="ad-empty">⏳ กำลังโหลดข้อมูลจาก Supabase…</div>';
+  body.innerHTML = '<div class="ad-empty">⏳ กำลังโหลดข้อมูลจาก Google Sheet…</div>';
   const rows = await apiSafe('listSlides', {}, null);
   if(!Array.isArray(rows)){
     body.innerHTML = '<div class="ad-card"><h4>ภาพสไลด์หน้าแรก</h4><div class="ad-empty">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ จึงยังจัดการสไลด์ไม่ได้ (สไลด์ต้องบันทึกบนเซิร์ฟเวอร์เพื่อให้ทุกเครื่องเห็นตรงกัน)</div></div>';
@@ -3079,14 +2853,14 @@ function applySettingsToSite(){
   if(s.examM4) SCHEDULE.m4.sched = s.examM4;
 }
 (() => {
-  /* เปิดเว็บด้วยค่าเริ่มต้นก่อน (SETTINGS = DEFAULT_SETTINGS อยู่แล้วตอนประกาศตัวแปร) ไม่รอ Supabase */
+  /* เปิดเว็บด้วยค่าเริ่มต้นก่อน (SETTINGS = DEFAULT_SETTINGS อยู่แล้วตอนประกาศตัวแปร) ไม่รอ Google Sheet */
   applySettingsToSite();
 
   /* โหลดค่าตั้งค่าจริงจากเซิร์ฟเวอร์ — ไม่มีการเก็บ/อ่านแคชในเครื่อง */
   DB.settings().then(serverSettings => {
     SETTINGS = Object.assign({}, DEFAULT_SETTINGS, serverSettings || {});
     applySettingsToSite();
-  }).catch(err => console.warn('[BOOT] Supabase ไม่พร้อม:', err && err.message ? err.message : err));
+  }).catch(err => console.warn('[BOOT] Google Sheet ไม่พร้อม:', err && err.message ? err.message : err));
 })();
 </script>
 </body>
