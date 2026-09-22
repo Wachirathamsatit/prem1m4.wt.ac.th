@@ -1185,36 +1185,102 @@ const SCHEDULE = {
 let PUBLIC_DEADLINE = new Date(APPLY_DEADLINE);
 
 /* ============ Backend config: Google Apps Script + Sheet + Drive ============ */
-const API_URL   = "https://script.google.com/macros/s/AKfycbyPHdrF3uILMk0VitSDKjIe7n3cswDohGUwOk9cifC6utx78tpOQzRP20GJi6RqI6zNrw/exec";
+const API_URL   = "https://script.google.com/macros/s/AKfycbxXrB6nguo_TzZsTvEfKAV3fTA6nj2U-ttMZeNRUZIdFoAI_fsKFB_nRbTny2KnfYVtUA/exec";
 const SHEET_ID  = "1d4OvF3kLvAhPv8YNQxpi3v7SYboA8hS0Y8HLlu6W5SQ";
 const FOLDER_ID = "1pBpE3ARPKXn8jZmIvjhI0VnIsPdsVzg7";
 
 let API_ONLINE = false;
 
-/* POST แบบ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script */
-async function api(action, payload = {}){
-  const res = await fetch(API_URL, {
-    method : 'POST',
-    headers: {'Content-Type':'text/plain;charset=utf-8'},
-    body   : JSON.stringify(Object.assign({action, sheetId:SHEET_ID, folderId:FOLDER_ID}, payload))
+/*
+ * API bridge
+ *
+ * ปัญหาที่พบ: Apps Script Web App อาจบันทึก POST ลง Google Sheet สำเร็จ
+ * แต่ browser อ่าน response ของ POST ไม่ได้จาก CORS/redirect ทำให้หน้าเว็บ
+ * เข้า catch() และแจ้งว่า “เชื่อมต่อเซิร์ฟเวอร์ไม่ได้” ทั้งที่ข้อมูลเข้า Sheet แล้ว
+ *
+ * วิธีแก้:
+ * - READ: ใช้ JSONP GET เพื่ออ่าน response ได้จริงจากต่างโดเมน
+ * - WRITE: ใช้ POST แบบ no-cors ซึ่งส่งคำขอไปถึง Apps Script ได้โดยไม่ติด CORS
+ * - หลัง WRITE ที่ต้องการผลจาก server ให้ caller อ่านข้อมูลกลับด้วย READ อีกครั้ง
+ */
+const API_READ_ACTIONS = new Set([
+  'ping','testDrive','getFileImage','getStatus','listApplicants','getSettings',
+  'listCourses','listNews','listRooms','listSlides'
+]);
+
+function apiJsonp(action, payload = {}, timeoutMs = 15000){
+  return new Promise((resolve, reject)=>{
+    const cbName = '__wtApiCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const script = document.createElement('script');
+    const params = new URLSearchParams();
+    params.set('action', action);
+    params.set('callback', cbName);
+    params.set('sheetId', SHEET_ID);
+    params.set('folderId', FOLDER_ID);
+    Object.entries(payload || {}).forEach(([k,v])=>{
+      if(v !== undefined && v !== null) params.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+    });
+
+    let done = false;
+    const finish = (err, data)=>{
+      if(done) return;
+      done = true;
+      clearTimeout(timer);
+      try{ delete window[cbName]; }catch(e){}
+      script.remove();
+      err ? reject(err) : resolve(data);
+    };
+    const timer = setTimeout(()=>finish(new Error('หมดเวลารอเซิร์ฟเวอร์')), timeoutMs);
+    window[cbName] = (json)=>{
+      if(!json || json.ok === false) return finish(new Error((json && json.error) || 'เซิร์ฟเวอร์แจ้งข้อผิดพลาด'));
+      API_ONLINE = true; updateConnBadge();
+      finish(null, json.data);
+    };
+    script.onerror = ()=>finish(new Error('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้'));
+    script.async = true;
+    script.src = API_URL + '?' + params.toString();
+    document.head.appendChild(script);
   });
-  const json = await res.json();
-  API_ONLINE = true; updateConnBadge();
-  if(json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์แจ้งข้อผิดพลาด');
-  return json.data;
 }
+
+async function apiWrite(action, payload = {}, timeoutMs = 15000){
+  const body = JSON.stringify(Object.assign({action, sheetId:SHEET_ID, folderId:FOLDER_ID}, payload));
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), timeoutMs);
+  try{
+    /* no-cors = browser จะไม่พยายามอ่าน response แต่ request ถูกส่งถึง Apps Script */
+    await fetch(API_URL, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body,
+      signal:controller.signal
+    });
+    API_ONLINE = true; updateConnBadge();
+    return {accepted:true};
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+async function api(action, payload = {}){
+  if(API_READ_ACTIONS.has(action)) return apiJsonp(action, payload);
+  return apiWrite(action, payload);
+}
+
 async function apiSafe(action, payload = {}, fallback = null){
-  try{ return await api(action, payload); }
-  catch(err){
+  try{
+    return await api(action, payload);
+  }catch(err){
     API_ONLINE = false; updateConnBadge();
-    console.warn('[API ออฟไลน์]', action, err.message);
+    console.warn('[API ออฟไลน์]', action, err && err.message ? err.message : err);
     return fallback;
   }
 }
 function updateConnBadge(){
   const el = document.getElementById('adConn');
   if(!el) return;
-  el.textContent = API_ONLINE ? '● เชื่อมต่อ Google Sheet แล้ว' : '● โหมดออฟไลน์ (เก็บในเครื่อง)';
+  el.textContent = API_ONLINE ? '● เชื่อมต่อ Google Sheet แล้ว' : '● กำลังเชื่อมต่อเซิร์ฟเวอร์…';
   el.classList.toggle('off', !API_ONLINE);
 }
 
