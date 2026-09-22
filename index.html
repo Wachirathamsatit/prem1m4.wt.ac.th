@@ -1185,53 +1185,29 @@ const SCHEDULE = {
 let PUBLIC_DEADLINE = new Date(APPLY_DEADLINE);
 
 /* ============ Backend config: Google Apps Script + Sheet + Drive ============ */
-const API_URL   = "https://script.google.com/macros/s/AKfycbxXrB6nguo_TzZsTvEfKAV3fTA6nj2U-ttMZeNRUZIdFoAI_fsKFB_nRbTny2KnfYVtUA/exec";
+const API_URL   = "https://script.google.com/macros/s/AKfycbyPHdrF3uILMk0VitSDKjIe7n3cswDohGUwOk9cifC6utx78tpOQzRP20GJi6RqI6zNrw/exec";
 const SHEET_ID  = "1d4OvF3kLvAhPv8YNQxpi3v7SYboA8hS0Y8HLlu6W5SQ";
 const FOLDER_ID = "1pBpE3ARPKXn8jZmIvjhI0VnIsPdsVzg7";
 
 let API_ONLINE = false;
 
-/* POST แบบ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
-   + มี timeout เพื่อป้องกันหน้าเว็บค้าง "กำลังโหลด..." ตลอดไป */
-const API_TIMEOUT_MS = 10000;
-
-async function api(action, payload = {}, timeoutMs = API_TIMEOUT_MS){
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = setTimeout(() => { if(controller) controller.abort(); }, timeoutMs);
-
-  try{
-    const res = await fetch(API_URL, {
-      method : 'POST',
-      headers: {'Content-Type':'text/plain;charset=utf-8'},
-      body   : JSON.stringify(Object.assign({action, sheetId:SHEET_ID, folderId:FOLDER_ID}, payload)),
-      signal : controller ? controller.signal : undefined
-    });
-
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
-
-    API_ONLINE = true;
-    updateConnBadge();
-
-    if(json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์แจ้งข้อผิดพลาด');
-    return json.data;
-  }catch(err){
-    if(err && err.name === 'AbortError'){
-      throw new Error('เชื่อมต่อ Google Sheet ใช้เวลานานเกินกำหนด (' + (timeoutMs/1000) + ' วินาที)');
-    }
-    throw err;
-  }finally{
-    clearTimeout(timer);
-  }
+/* POST แบบ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script */
+async function api(action, payload = {}){
+  const res = await fetch(API_URL, {
+    method : 'POST',
+    headers: {'Content-Type':'text/plain;charset=utf-8'},
+    body   : JSON.stringify(Object.assign({action, sheetId:SHEET_ID, folderId:FOLDER_ID}, payload))
+  });
+  const json = await res.json();
+  API_ONLINE = true; updateConnBadge();
+  if(json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์แจ้งข้อผิดพลาด');
+  return json.data;
 }
-
-async function apiSafe(action, payload = {}, fallback = null, timeoutMs = API_TIMEOUT_MS){
-  try{
-    return await api(action, payload, timeoutMs);
-  }catch(err){
-    API_ONLINE = false;
-    updateConnBadge();
-    console.warn('[API ออฟไลน์]', action, err && err.message ? err.message : err);
+async function apiSafe(action, payload = {}, fallback = null){
+  try{ return await api(action, payload); }
+  catch(err){
+    API_ONLINE = false; updateConnBadge();
+    console.warn('[API ออฟไลน์]', action, err.message);
     return fallback;
   }
 }
@@ -1823,34 +1799,11 @@ function goPage(id){
 }
 async function reloadAdminData(){
   const body = document.getElementById('adBody');
-  body.innerHTML = '<div class="ad-empty">⏳ กำลังโหลดข้อมูล…</div>';
-
-  /* แสดงข้อมูลที่มีในเครื่องก่อนทันที ไม่รอ Google Sheet */
-  const cachedRows = localTable('applicants');
-  const cachedSettings = Object.assign({}, DEFAULT_SETTINGS, (localTable('settings')[0] || {}));
-
-  APP_ROWS = (Array.isArray(cachedRows) ? cachedRows : []).map(normalizeRow);
-  SETTINGS = cachedSettings;
-  applySettingsToSite();
-
-  /* ถ้ามี cache ให้ผู้ดูแลใช้งานหน้าได้ทันที แล้วค่อย sync เบื้องหลัง */
-  if(APP_ROWS.length || localTable('settings').length){
-    goPage(CUR_PAGE);
-  }
-
-  const results = await Promise.all([
-    DB.applicants(),
-    DB.settings()
-  ]);
-
-  APP_ROWS = (results[0] || APP_ROWS || []).map(normalizeRow);
-  SETTINGS = results[1] || SETTINGS || Object.assign({}, DEFAULT_SETTINGS);
+  body.innerHTML = '<div class="ad-empty">⏳ กำลังโหลดข้อมูลจาก Google Sheet…</div>';
+  [APP_ROWS, SETTINGS] = await Promise.all([DB.applicants(), DB.settings()]);
+  APP_ROWS = (APP_ROWS||[]).map(normalizeRow);
   applySettingsToSite();
   goPage(CUR_PAGE);
-
-  if(!API_ONLINE && !APP_ROWS.length){
-    body.innerHTML = '<div class="ad-empty">⚠️ ยังเชื่อมต่อ Google Sheet ไม่ได้<br><small>ระบบจะใช้ข้อมูลในเครื่อง และสามารถกด “รีเฟรช” เพื่อลองใหม่ได้</small></div>';
-  }
 }
 function normalizeRow(r){
   r.appStatus    = r.appStatus    || 'pending';
