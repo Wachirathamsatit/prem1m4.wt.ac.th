@@ -1238,18 +1238,9 @@ async function apiSafe(action, payload = {}, fallback = null, timeoutMs = API_TI
 function updateConnBadge(){
   const el = document.getElementById('adConn');
   if(!el) return;
-  el.textContent = API_ONLINE ? '● เชื่อมต่อ Google Sheet แล้ว' : '● โหมดออฟไลน์ (เก็บในเครื่อง)';
+  el.textContent = API_ONLINE ? '● เชื่อมต่อ Google Sheet แล้ว' : '● เชื่อมต่อเซิร์ฟเวอร์ไม่ได้';
   el.classList.toggle('off', !API_ONLINE);
 }
-
-/* ============ ฐานข้อมูลสำรองในเครื่อง (ใช้เมื่อเชื่อม API ไม่ได้) ============ */
-const LS_DB = 'wt_local_db_v2';
-function localDB(){
-  try{ return JSON.parse(localStorage.getItem(LS_DB)) || {}; }catch(e){ return {}; }
-}
-function saveLocalDB(db){ try{ localStorage.setItem(LS_DB, JSON.stringify(db)); }catch(e){} }
-function localTable(name){ const db = localDB(); return Array.isArray(db[name]) ? db[name] : []; }
-function setLocalTable(name, rows){ const db = localDB(); db[name] = rows; saveLocalDB(db); }
 
 const DEFAULT_SETTINGS = {
   siteTitle:'WT Pre-Entrance', schoolName:'โรงเรียนวชิรธรรมสาธิต',
@@ -1260,57 +1251,53 @@ const DEFAULT_SETTINGS = {
   examSubjects:[{key:'sTh',name:'ภาษาไทย',max:25},{key:'sMa',name:'คณิตศาสตร์',max:25},{key:'sSc',name:'วิทยาศาสตร์',max:25},{key:'sEn',name:'ภาษาอังกฤษ',max:25}]
 };
 
-/* ชั้นกลาง: เรียก API ก่อน ถ้าไม่ได้ใช้ข้อมูลในเครื่อง */
+/* ชั้นกลาง: คุยกับ Google Sheet ผ่าน Apps Script โดยตรงเท่านั้น — ไม่มีโหมดออฟไลน์/แคชในเครื่อง
+   คำสั่งอ่าน (apiSafe) ถ้าเชื่อมต่อไม่ได้ จะคืนค่าว่างเปล่า ไม่ใช่ข้อมูลเก่าที่เคยแคชไว้
+   คำสั่งบันทึก (api) ถ้าเชื่อมต่อไม่ได้ จะแจ้งเตือนผู้ใช้ทันทีและโยน error ต่อ ไม่ถือว่าบันทึกสำเร็จ */
+async function apiOrToast(action, payload, failMsg){
+  try{
+    return await api(action, payload);
+  }catch(err){
+    showToast((failMsg || 'บันทึกไม่สำเร็จ') + ': ' + (err && err.message ? err.message : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'));
+    throw err;
+  }
+}
 const DB = {
   async applicants(){
     const rows = await apiSafe('listApplicants', {}, null);
-    if(rows){ setLocalTable('applicants', rows); return rows; }
-    return localTable('applicants');
+    return Array.isArray(rows) ? rows : [];
   },
   async saveApplicant(rec){
-    const saved = await apiSafe('saveApplicant', {record:rec}, null);
-    const rows = localTable('applicants');
-    const i = rows.findIndex(r => r.id === rec.id);
-    if(i >= 0) rows[i] = Object.assign(rows[i], saved || rec); else rows.push(saved || rec);
-    setLocalTable('applicants', rows);
-    return saved || rec;
+    return await apiOrToast('saveApplicant', {record:rec}, 'บันทึกข้อมูลผู้สมัครไม่สำเร็จ');
   },
   async patch(ids, patch){
-    await apiSafe('patchApplicants', {ids, patch});
-    const rows = localTable('applicants').map(r => ids.includes(r.id) ? Object.assign(r, patch, {updatedAt:new Date().toISOString()}) : r);
-    setLocalTable('applicants', rows);
+    await apiOrToast('patchApplicants', {ids, patch}, 'บันทึกการเปลี่ยนแปลงไม่สำเร็จ');
   },
   async removeForever(ids){
-    await apiSafe('deleteApplicants', {ids});
-    setLocalTable('applicants', localTable('applicants').filter(r => !ids.includes(r.id)));
+    await apiOrToast('deleteApplicants', {ids}, 'ลบข้อมูลไม่สำเร็จ');
   },
   async settings(){
     const s = await apiSafe('getSettings', {}, null);
-    if(s){ setLocalTable('settings', [s]); return Object.assign({}, DEFAULT_SETTINGS, s); }
-    return Object.assign({}, DEFAULT_SETTINGS, (localTable('settings')[0] || {}));
+    return Object.assign({}, DEFAULT_SETTINGS, s || {});
   },
   async saveSettings(s){
-    await apiSafe('saveSettings', {settings:s});
-    setLocalTable('settings', [s]);
+    await apiOrToast('saveSettings', {settings:s}, 'บันทึกการตั้งค่าไม่สำเร็จ');
   },
   async courses(){
     const r = await apiSafe('listCourses', {}, null);
-    if(r){ setLocalTable('courses', r); return r; }
-    return localTable('courses');
+    return Array.isArray(r) ? r : [];
   },
-  async saveCourses(rows){ await apiSafe('saveCourses', {rows}); setLocalTable('courses', rows); },
+  async saveCourses(rows){ await apiOrToast('saveCourses', {rows}, 'บันทึกหลักสูตรไม่สำเร็จ'); },
   async news(){
     const r = await apiSafe('listNews', {}, null);
-    if(r){ setLocalTable('news', r); return r; }
-    return localTable('news');
+    return Array.isArray(r) ? r : [];
   },
-  async saveNews(rows){ await apiSafe('saveNews', {rows}); setLocalTable('news', rows); },
+  async saveNews(rows){ await apiOrToast('saveNews', {rows}, 'บันทึกข่าวสารไม่สำเร็จ'); },
   async rooms(){
     const r = await apiSafe('listRooms', {}, null);
-    if(r){ setLocalTable('rooms', r); return r; }
-    return localTable('rooms');
+    return Array.isArray(r) ? r : [];
   },
-  async saveRooms(rows){ await apiSafe('saveRooms', {rows}); setLocalTable('rooms', rows); }
+  async saveRooms(rows){ await apiOrToast('saveRooms', {rows}, 'บันทึกห้องสอบไม่สำเร็จ'); }
 };
 
 
@@ -1424,8 +1411,7 @@ function showToast(msg){
 }
 
 /* ============ slideshow (แชร์ผ่าน Google Sheet + Drive — ทุกเครื่องเห็นเหมือนกัน) ============ */
-const LS_SLIDES = 'wt_pre_entrance_slides_v3';       // แคชสไลด์จากเซิร์ฟเวอร์ (ไว้แสดงเร็ว/ออฟไลน์)
-let slides = [];
+let slides = DEFAULT_SLIDES.slice();  // สไลด์ตัวอย่างชั่วคราว ก่อนโหลดจากเซิร์ฟเวอร์
 let current = 0;
 let SLIDES_SYNCED_AT = 0;
 
@@ -1433,16 +1419,10 @@ const escHtml = v => String(v==null?'':v).replace(/[&<>"']/g, c => ({'&':'&amp;'
 const curLang = () => (window.WT_I18N && window.WT_I18N.lang) || 'th';
 const slideCaption = s => (curLang()==='en' && s.captionEn) ? s.captionEn : (s.caption || '');
 
-function loadSlidesCache(){
-  let list = [];
-  try{ const raw = localStorage.getItem(LS_SLIDES); list = raw ? JSON.parse(raw) : []; }catch(e){ list = []; }
-  slides = (Array.isArray(list) && list.length) ? list : DEFAULT_SLIDES.slice();
-}
-/* รับรายการสไลด์จากเซิร์ฟเวอร์ → แสดงผล + เก็บแคช (ว่าง = ใช้สไลด์ตัวอย่าง) */
+/* รับรายการสไลด์จากเซิร์ฟเวอร์ → แสดงผลทันที ไม่เก็บแคชในเครื่อง (ว่าง = ใช้สไลด์ตัวอย่าง) */
 function applySlideRows(rows){
   const list = Array.isArray(rows) ? rows.filter(r => r && r.img) : [];
   slides = list.length ? list : DEFAULT_SLIDES.slice();
-  try{ localStorage.setItem(LS_SLIDES, JSON.stringify(list)); }catch(e){}
   current = Math.min(current, slides.length - 1);
   renderSlides();
 }
@@ -1492,7 +1472,7 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible' && Date.now()-SLIDES_SYNCED_AT > 120000) syncSlides();
 });
 document.addEventListener('langchange', renderSlides);
-loadSlidesCache(); renderSlides(); syncSlides();
+renderSlides(); syncSlides();
 
 /* ============ admin login ============ */
 let isAdmin = false;
@@ -1530,9 +1510,7 @@ slipInput.addEventListener('change', ()=>{
   reader.readAsDataURL(f);
 });
 
-/* ============ submit application -> store in localStorage ============ */
-const LS_SUBMISSIONS = 'wt_pre_entrance_submissions_v1';
-const LS_COUNTER = 'wt_pre_entrance_counter_v1';
+/* ============ submit application -> ส่งเข้า Google Sheet โดยตรงเท่านั้น ============ */
 function hashCode(str){ let h=0; for(let i=0;i<str.length;i++){ h=(h*31 + str.charCodeAt(i))>>>0; } return h; }
 
 function fileToBase64(file){
@@ -1589,19 +1567,12 @@ document.getElementById('regForm').addEventListener('submit', async (e)=>{
   }
 
   if(!saved){
-    let counter = parseInt(localStorage.getItem(LS_COUNTER) || '0', 10) + 1;
-    localStorage.setItem(LS_COUNTER, String(counter));
-    record.code = 'WT69-' + String(counter).padStart(5,'0');
-    const rows = localTable('applicants').filter(r => r.idNumber !== idVal);
-    rows.push(record); setLocalTable('applicants', rows);
-    saved = record;
-    showToast('บันทึกในเครื่องแล้ว (เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ชั่วคราว)');
-  } else {
-    const rows = localTable('applicants').filter(r => r.idNumber !== idVal);
-    rows.push(saved); setLocalTable('applicants', rows);
-    showToast('ส่งใบสมัครเรียบร้อยแล้ว รหัสผู้สมัคร ' + saved.code);
+    showToast('ส่งใบสมัครไม่สำเร็จ: เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่อีกครั้ง');
+    submitBtn.disabled = false; submitBtn.textContent = 'ส่งใบสมัคร';
+    return;
   }
 
+  showToast('ส่งใบสมัครเรียบร้อยแล้ว รหัสผู้สมัคร ' + saved.code);
   submitBtn.disabled = false; submitBtn.textContent = 'ส่งใบสมัคร';
   e.target.reset();
   restOfForm.classList.remove('unlocked');
@@ -1639,11 +1610,10 @@ document.getElementById('portalCheckBtn').addEventListener('click', async ()=>{
   const val = document.getElementById('portalIdInput').value.trim();
   if(!val){ showToast('กรุณากรอกเลขบัตรประชาชนหรือพาสปอร์ต'); return; }
   const card = document.getElementById('statusCard');
-  let found = await apiSafe('getStatus', {idNumber: val}, null);
-  if(!found) found = localTable('applicants').find(s => s.idNumber === val) || null;
+  const found = await apiSafe('getStatus', {idNumber: val}, null);
   if(!found){
     card.classList.remove('show');
-    showToast('ไม่พบข้อมูลผู้สมัคร กรุณาตรวจสอบเลขที่กรอกอีกครั้ง');
+    showToast(API_ONLINE ? 'ไม่พบข้อมูลผู้สมัคร กรุณาตรวจสอบเลขที่กรอกอีกครั้ง' : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่อีกครั้ง');
     return;
   }
   foundApplicant = found;
@@ -1825,36 +1795,16 @@ async function reloadAdminData(){
   const body = document.getElementById('adBody');
   body.innerHTML = '<div class="ad-empty">⏳ กำลังโหลดข้อมูล…</div>';
 
-  /* แสดงข้อมูลในเครื่องทันที และห้ามรอ API ก่อนวาดหน้า */
-  const cachedRows = localTable('applicants');
-  const cachedSettingsRows = localTable('settings');
-  const cachedSettings = Object.assign({}, DEFAULT_SETTINGS, (cachedSettingsRows[0] || {}));
-
-  APP_ROWS = (Array.isArray(cachedRows) ? cachedRows : []).map(normalizeRow);
-  SETTINGS = cachedSettings;
+  const [serverRows, serverSettings] = await Promise.all([DB.applicants(), DB.settings()]);
+  APP_ROWS = (Array.isArray(serverRows) ? serverRows : []).map(normalizeRow);
+  SETTINGS = Object.assign({}, DEFAULT_SETTINGS, serverSettings || {});
   applySettingsToSite();
-  goPage(CUR_PAGE);
 
-  /* ซิงก์ Google Sheet แบบ background: ไม่บล็อกหน้าเว็บ */
-  Promise.all([DB.applicants(), DB.settings()]).then(([serverRows, serverSettings]) => {
-    if(Array.isArray(serverRows)){
-      APP_ROWS = serverRows.map(normalizeRow);
-      setLocalTable('applicants', APP_ROWS);
-    }
-    if(serverSettings && typeof serverSettings === 'object'){
-      SETTINGS = Object.assign({}, DEFAULT_SETTINGS, serverSettings);
-      setLocalTable('settings', [SETTINGS]);
-    }
-    applySettingsToSite();
-    goPage(CUR_PAGE);
-  }).catch(err => {
-    console.warn('[SYNC] Google Sheet ไม่พร้อม:', err && err.message ? err.message : err);
-    /* คงข้อมูลในเครื่องไว้ ไม่ให้หน้าเว็บกลับไปค้าง */
-  });
-
-  if(!API_ONLINE && !APP_ROWS.length){
-    body.innerHTML = '<div class="ad-empty">⚠️ ยังเชื่อมต่อ Google Sheet ไม่ได้<br><small>ระบบจะใช้ข้อมูลในเครื่อง และสามารถกด “รีเฟรช” เพื่อลองใหม่ได้</small></div>';
+  if(!API_ONLINE){
+    body.innerHTML = '<div class="ad-empty">⚠️ เชื่อมต่อ Google Sheet ไม่ได้<br><small>ตรวจสอบการ Deploy/อินเทอร์เน็ต แล้วกด “รีเฟรช” เพื่อลองใหม่</small></div>';
+    return;
   }
+  goPage(CUR_PAGE);
 }
 function normalizeRow(r){
   r.appStatus    = r.appStatus    || 'pending';
@@ -2309,7 +2259,10 @@ PAGES.settings = () => {
     document.querySelectorAll('#adBody [data-s]').forEach(i => {
       n[i.dataset.s] = i.value === 'true' ? true : i.value === 'false' ? false : i.value;
     });
-    SETTINGS = n; await DB.saveSettings(n); applySettingsToSite(); showToast('บันทึกการตั้งค่าเรียบร้อย');
+    try{
+      await DB.saveSettings(n);
+      SETTINGS = n; applySettingsToSite(); showToast('บันทึกการตั้งค่าเรียบร้อย');
+    }catch(err){ /* apiOrToast ได้แจ้งเตือนไปแล้ว */ }
   };
   document.getElementById('btnPing').onclick = async () => {
     const r = await apiSafe('ping', {}, null);
@@ -2494,7 +2447,11 @@ PAGES['exam-subjects'] = () => {
         if(name && max>0) out.push({key:subjects[i].key,name,max});
       });
       if(!out.length){showToast('ต้องมีอย่างน้อย 1 รายวิชา');return;}
-      SETTINGS.examSubjects=out; await DB.saveSettings(SETTINGS); showToast('บันทึกรายวิชาเรียบร้อย'); goPage('exam-subjects');
+      const n = Object.assign({}, SETTINGS, {examSubjects:out});
+      try{
+        await DB.saveSettings(n);
+        SETTINGS = n; showToast('บันทึกรายวิชาเรียบร้อย'); goPage('exam-subjects');
+      }catch(err){ /* apiOrToast ได้แจ้งเตือนไปแล้ว */ }
     };
   };
   draw();
@@ -2877,17 +2834,13 @@ function applySettingsToSite(){
   if(s.examM4) SCHEDULE.m4.sched = s.examM4;
 }
 (() => {
-  /* เปิดเว็บด้วยค่าเริ่มต้นก่อน ไม่รอ Google Sheet */
-  SETTINGS = Object.assign({}, DEFAULT_SETTINGS, (localTable('settings')[0] || {}));
+  /* เปิดเว็บด้วยค่าเริ่มต้นก่อน (SETTINGS = DEFAULT_SETTINGS อยู่แล้วตอนประกาศตัวแปร) ไม่รอ Google Sheet */
   applySettingsToSite();
 
-  /* ถ้ามีเซิร์ฟเวอร์ค่อยอัปเดตข้อมูลภายหลัง */
+  /* โหลดค่าตั้งค่าจริงจากเซิร์ฟเวอร์ — ไม่มีการเก็บ/อ่านแคชในเครื่อง */
   DB.settings().then(serverSettings => {
-    if(serverSettings && typeof serverSettings === 'object'){
-      SETTINGS = Object.assign({}, DEFAULT_SETTINGS, serverSettings);
-      setLocalTable('settings', [SETTINGS]);
-      applySettingsToSite();
-    }
+    SETTINGS = Object.assign({}, DEFAULT_SETTINGS, serverSettings || {});
+    applySettingsToSite();
   }).catch(err => console.warn('[BOOT] Google Sheet ไม่พร้อม:', err && err.message ? err.message : err));
 })();
 </script>
