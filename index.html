@@ -2012,7 +2012,6 @@ function openDetail(r){
       </p>
     </div>`:''}
     </div>`);
-}
   if(r.slipId){
     api('getFileImage', {fileId:r.slipId}).then(function(x){
       const box = document.getElementById('detailSlipBox');
@@ -2030,6 +2029,7 @@ function openDetail(r){
       }
     });
   }
+}
 const EDIT_FIELDS = [
   {k:'code', l:'รหัสผู้สมัคร'}, {k:'fullName', l:'ชื่อ-นามสกุล'},
   {k:'idNumber', l:'เลขบัตร/พาสปอร์ต'}, {k:'dob', l:'วันเกิด', t:'date'},
