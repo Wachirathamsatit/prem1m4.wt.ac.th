@@ -1192,13 +1192,12 @@ const FOLDER_ID = "1pBpE3ARPKXn8jZmIvjhI0VnIsPdsVzg7";
 let API_ONLINE = false;
 
 /* POST แบบ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
-   + มี timeout เพื่อป้องกันหน้าเว็บค้าง "กำลังโหลด..." ตลอดไป */
-const API_TIMEOUT_MS = 10000;
+   + มี timeout กันหน้าเว็บค้าง + ลองใหม่อัตโนมัติ 1 ครั้งถ้าล้มเหลวชั่วคราว (เช่น Apps Script cold start) */
+const API_TIMEOUT_MS = 20000;
 
-async function api(action, payload = {}, timeoutMs = API_TIMEOUT_MS){
+async function apiOnce_(action, payload, timeoutMs){
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = setTimeout(() => { if(controller) controller.abort(); }, timeoutMs);
-
   try{
     const res = await fetch(API_URL, {
       method : 'POST',
@@ -1206,32 +1205,51 @@ async function api(action, payload = {}, timeoutMs = API_TIMEOUT_MS){
       body   : JSON.stringify(Object.assign({action, sheetId:SHEET_ID, folderId:FOLDER_ID}, payload)),
       signal : controller ? controller.signal : undefined
     });
-
-    if(!res.ok) throw new Error('HTTP ' + res.status);
+    if(!res.ok) throw new Error('เซิร์ฟเวอร์ตอบกลับผิดปกติ (HTTP ' + res.status + ') — ตรวจสอบว่า Deploy เป็น "Anyone" แล้วหรือยัง');
     const json = await res.json();
-
-    API_ONLINE = true;
-    updateConnBadge();
-
     if(json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์แจ้งข้อผิดพลาด');
     return json.data;
   }catch(err){
     if(err && err.name === 'AbortError'){
       throw new Error('เชื่อมต่อ Google Sheet ใช้เวลานานเกินกำหนด (' + (timeoutMs/1000) + ' วินาที)');
     }
+    if(err instanceof TypeError){
+      throw new Error('เชื่อมต่อเครือข่ายไม่ได้ (Failed to fetch) — ตรวจสอบอินเทอร์เน็ตหรือ URL ของ Apps Script');
+    }
     throw err;
   }finally{
     clearTimeout(timer);
   }
 }
+async function api(action, payload = {}, timeoutMs = API_TIMEOUT_MS){
+  try{
+    const data = await apiOnce_(action, payload, timeoutMs);
+    API_ONLINE = true;
+    updateConnBadge();
+    return data;
+  }catch(firstErr){
+    /* ลองใหม่อัตโนมัติ 1 ครั้ง เผื่อเป็นปัญหาชั่วคราว (เช่น Apps Script เพิ่งตื่นจาก cold start) */
+    await new Promise(r => setTimeout(r, 700));
+    try{
+      const data = await apiOnce_(action, payload, timeoutMs);
+      API_ONLINE = true;
+      updateConnBadge();
+      return data;
+    }catch(secondErr){
+      API_ONLINE = false;
+      LAST_API_ERROR = (secondErr && secondErr.message) ? secondErr.message : String(secondErr);
+      updateConnBadge();
+      throw secondErr;
+    }
+  }
+}
 
+let LAST_API_ERROR = '';
 async function apiSafe(action, payload = {}, fallback = null, timeoutMs = API_TIMEOUT_MS){
   try{
     return await api(action, payload, timeoutMs);
   }catch(err){
-    API_ONLINE = false;
-    updateConnBadge();
-    console.warn('[API ออฟไลน์]', action, err && err.message ? err.message : err);
+    console.warn('[API ออฟไลน์]', action, LAST_API_ERROR);
     return fallback;
   }
 }
@@ -1239,6 +1257,7 @@ function updateConnBadge(){
   const el = document.getElementById('adConn');
   if(!el) return;
   el.textContent = API_ONLINE ? '● เชื่อมต่อ Google Sheet แล้ว' : '● เชื่อมต่อเซิร์ฟเวอร์ไม่ได้';
+  el.title = API_ONLINE ? '' : LAST_API_ERROR;
   el.classList.toggle('off', !API_ONLINE);
 }
 
@@ -1801,7 +1820,7 @@ async function reloadAdminData(){
   applySettingsToSite();
 
   if(!API_ONLINE){
-    body.innerHTML = '<div class="ad-empty">⚠️ เชื่อมต่อ Google Sheet ไม่ได้<br><small>ตรวจสอบการ Deploy/อินเทอร์เน็ต แล้วกด “รีเฟรช” เพื่อลองใหม่</small></div>';
+    body.innerHTML = '<div class="ad-empty">⚠️ เชื่อมต่อ Google Sheet ไม่ได้<br><small>' + esc(LAST_API_ERROR || 'ตรวจสอบการ Deploy/อินเทอร์เน็ต') + '<br>กด “รีเฟรช” เพื่อลองใหม่</small></div>';
     return;
   }
   goPage(CUR_PAGE);
@@ -2266,11 +2285,11 @@ PAGES.settings = () => {
   };
   document.getElementById('btnPing').onclick = async () => {
     const r = await apiSafe('ping', {}, null);
-    showToast(r ? 'เชื่อมต่อ Apps Script สำเร็จ' : 'เชื่อมต่อไม่สำเร็จ ตรวจสอบการ Deploy และสิทธิ์เข้าถึง');
+    showToast(r ? 'เชื่อมต่อ Apps Script สำเร็จ' : 'เชื่อมต่อไม่สำเร็จ: ' + (LAST_API_ERROR || 'ตรวจสอบการ Deploy และสิทธิ์เข้าถึง'));
   };
   document.getElementById('btnDrive').onclick = async () => {
     const r = await apiSafe('testDrive', {}, null);
-    showToast(r && r.ok ? `DriveApp ใช้งานได้: ${r.folderName}` : 'DriveApp ใช้งานไม่ได้ ตรวจสอบสิทธิ์และ Folder ID');
+    showToast(r && r.ok ? `DriveApp ใช้งานได้: ${r.folderName}` : 'DriveApp ใช้งานไม่ได้: ' + (LAST_API_ERROR || 'ตรวจสอบสิทธิ์และ Folder ID'));
   };
   document.getElementById('btnSlides').onclick = () => goPage('slides');
 };
