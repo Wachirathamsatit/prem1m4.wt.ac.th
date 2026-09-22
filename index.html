@@ -311,8 +311,10 @@
   #printTicket{display:none;}
   @media print{
     body *{visibility:hidden;}
-    #printTicket, #printTicket *{visibility:visible;}
-    #printTicket{display:block; position:fixed; top:0; left:0; width:100%;}
+    #printTicket, #printResultReport{display:none !important;}
+    #printTicket.printing, #printTicket.printing *{visibility:visible;}
+    #printResultReport.printing, #printResultReport.printing *{visibility:visible;}
+    #printTicket.printing, #printResultReport.printing{display:block !important; position:fixed; top:0; left:0; width:100%;}
   }
   .ticket{
     border:2.5px solid var(--rose-deep); border-radius:16px; padding:26px; max-width:520px; margin:0 auto;
@@ -336,6 +338,20 @@
   .result-report .rmeta{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;margin:18px 0}
   .result-report .rmeta div{padding:7px 0;border-bottom:1px dotted var(--rose-pale)}
   .result-report .rmeta b{display:inline-block;min-width:120px;color:var(--ink-soft2)}
+  .report-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+  .report-table th,.report-table td{border:1px solid var(--rose-pale);padding:8px 10px;text-align:left}
+  .report-table th{background:var(--blush-2);color:var(--rose-deep-dark)}
+  .report-total{font-size:20px;font-weight:700;color:var(--rose-deep)}
+  .room-report-print{font-family:'Prompt',sans-serif;color:#111;background:#fff;padding:24px}
+  .room-report-print h1{text-align:center;font-size:22px;margin:0 0 4px}
+  .room-report-print .meta{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 20px;margin:14px 0 18px}
+  .room-report-print table{width:100%;border-collapse:collapse}
+  .room-report-print th,.room-report-print td{border:1px solid #999;padding:7px 8px}
+  .room-report-print th{background:#eee}
+  @media print{
+    .room-report-print{padding:0}
+    .room-report-print h1{font-size:20px}
+  }
 
   @media (prefers-reduced-motion:reduce){ *{transition:none !important; scroll-behavior:auto !important;} }
 
@@ -619,8 +635,9 @@
           <div class="status-row"><span>รหัสผู้สมัคร</span><span id="stCode"></span></div>
           <div class="status-row"><span>วันที่สมัคร</span><span id="stDate"></span></div>
           <div class="form-actions" style="margin-top:14px;">
+            <button class="btn btn-primary" type="button" id="editStatusBtn" style="display:none">✏️ แก้ไขข้อมูลและส่งใหม่</button>
             <button class="btn btn-primary" type="button" id="printTicketBtn">🖨️ พิมพ์บัตรประจำตัวสอบ</button>
-             <button class="btn btn-outline" type="button" id="printResultBtn" style="display:none">📄 พิมพ์รายงานผลสอบ</button>
+            <button class="btn btn-outline" type="button" id="printResultBtn" style="display:none">📄 พิมพ์รายงานผลสอบ</button>
           </div>
         </div>
       </div>
@@ -1551,13 +1568,14 @@ document.getElementById('regForm').addEventListener('submit', async (e)=>{
     g('schoolInput'), g('districtInput'), g('provinceInput'), g('guardianName'), g('guardianPhone')];
   if(required.some(v=>!v)){ showToast('กรุณากรอกข้อมูลให้ครบทุกช่อง'); return; }
   const slipFile = slipInput.files[0];
-  if(!slipFile){ showToast('กรุณาอัปโหลดหลักฐานการโอนเงิน'); return; }
+  const correctionMode = !!window.correctionApplicantId;
+  if(!correctionMode && !slipFile){ showToast('กรุณาอัปโหลดหลักฐานการโอนเงิน'); return; }
 
   const submitBtn = e.target.querySelector('button[type="submit"]');
   submitBtn.disabled = true; submitBtn.textContent = 'กำลังส่งข้อมูล…';
 
   const record = {
-    id: 'A' + Date.now() + Math.floor(Math.random()*1000),
+    id: correctionMode ? window.correctionApplicantId : ('A' + Date.now() + Math.floor(Math.random()*1000)),
     level,
     prefix: document.querySelector('#applicant select').value,
     firstName: g('firstName'), lastName: g('lastName'),
@@ -1567,20 +1585,23 @@ document.getElementById('regForm').addEventListener('submit', async (e)=>{
     currentGrade: g('currentGrade'), school: g('schoolInput'),
     district: g('districtInput'), province: g('provinceInput'),
     guardianName: g('guardianName'), guardianPhone: g('guardianPhone'),
-    appStatus: 'pending', payStatus: 'review',
-    payAmount: (SETTINGS && SETTINGS.fee) || APP_FEE,
-    payDate: new Date().toISOString().slice(0,10),
-    resultStatus: 'none', deleted: false,
-    createdAt: new Date().toISOString()
+    appStatus: correctionMode ? 'pending' : 'pending',
+    payStatus: correctionMode && window.correctionOriginal ? (window.correctionOriginal.payStatus || 'review') : 'review',
+    payAmount: correctionMode && window.correctionOriginal ? window.correctionOriginal.payAmount : ((SETTINGS && SETTINGS.fee) || APP_FEE),
+    payDate: correctionMode && window.correctionOriginal ? window.correctionOriginal.payDate : new Date().toISOString().slice(0,10),
+    resultStatus: correctionMode && window.correctionOriginal ? (window.correctionOriginal.resultStatus || 'none') : 'none',
+    deleted: false,
+    createdAt: correctionMode && window.correctionOriginal ? window.correctionOriginal.createdAt : new Date().toISOString()
   };
 
   let saved = null;
   try{
-    const b64 = await fileToBase64(slipFile);
-    saved = await api('submitApplication', {
-      record,
-      slip:{ name: slipFile.name, mime: slipFile.type || 'image/jpeg', data: b64 }
-    });
+    const payload = {record, isCorrection: correctionMode};
+    if(slipFile){
+      const b64 = await fileToBase64(slipFile);
+      payload.slip = { name: slipFile.name, mime: slipFile.type || 'image/jpeg', data: b64 };
+    }
+    saved = await api('submitApplication', payload);
   }catch(err){
     console.warn('ส่งเข้า Apps Script ไม่สำเร็จ:', err.message);
   }
@@ -1591,8 +1612,10 @@ document.getElementById('regForm').addEventListener('submit', async (e)=>{
     return;
   }
 
-  showToast('ส่งใบสมัครเรียบร้อยแล้ว รหัสผู้สมัคร ' + saved.code);
+  showToast((correctionMode ? 'ส่งข้อมูลแก้ไขเรียบร้อยแล้ว รหัสผู้สมัคร ' : 'ส่งใบสมัครเรียบร้อยแล้ว รหัสผู้สมัคร ') + saved.code);
   submitBtn.disabled = false; submitBtn.textContent = 'ส่งใบสมัคร';
+  window.correctionApplicantId = '';
+  window.correctionOriginal = null;
   e.target.reset();
   restOfForm.classList.remove('unlocked');
   restOfForm.dataset.scrolled='';
@@ -1672,26 +1695,80 @@ document.getElementById('portalCheckBtn').addEventListener('click', async ()=>{
 
   const printBtn = document.getElementById('printTicketBtn');
   const resultBtn = document.getElementById('printResultBtn');
+  const editBtn = document.getElementById('editStatusBtn');
   const canPrint = found.appStatus === 'approved' && found.payStatus === 'paid';
   printBtn.style.display = canPrint ? '' : 'none';
   const canPrintResult = resultEnabled && found.resultStatus === 'published';
   resultBtn.style.display = canPrintResult ? '' : 'none';
-  if(!canPrint && !canPrintResult) showToast('ข้อมูลสำหรับพิมพ์ยังไม่พร้อม');
+  editBtn.style.display = found.appStatus === 'fix' ? '' : 'none';
   card.classList.add('show');
 });
+document.getElementById('editStatusBtn').addEventListener('click', ()=>{
+  if(!foundApplicant || foundApplicant.appStatus !== 'fix') return;
+  const a = foundApplicant;
+  window.correctionApplicantId = a.id;
+  window.correctionOriginal = a;
+  const form = document.getElementById('regForm');
+  const g = id => document.getElementById(id);
+  const setVal = (id,v) => { const el=g(id); if(el) el.value = v == null ? '' : v; };
+  if(a.level === 'm1') document.getElementById('levelM1').click();
+  if(a.level === 'm4') document.getElementById('levelM4').click();
+  const prefix = document.querySelector('#applicant select');
+  if(prefix) prefix.value = a.prefix || '';
+  setVal('firstName',a.firstName); setVal('lastName',a.lastName);
+  setVal('dobInput',a.dob); setVal('phoneInput',a.phone);
+  setVal('currentGrade',a.currentGrade); setVal('schoolInput',a.school);
+  setVal('districtInput',a.district); setVal('provinceInput',a.province);
+  setVal('guardianName',a.guardianName); setVal('guardianPhone',a.guardianPhone);
+  const idEl=g('idInput'); if(idEl) idEl.value=a.idNumber || '';
+  const fc=g('foreignChk'); if(fc) fc.checked = a.foreign === 'yes';
+  document.getElementById('portalIdInput').value = a.idNumber || '';
+  form.scrollIntoView({behavior:'smooth'});
+  setTimeout(()=>document.getElementById('applicant').scrollIntoView({behavior:'smooth'}),150);
+  showToast('กรุณาแก้ไขข้อมูลตามหมายเหตุ แล้วกด “ส่งใบสมัคร” ได้เลย');
+});
+function fillResultReport(a){
+  if(!a) return;
+  const subjects = Array.isArray(SETTINGS.examSubjects) ? SETTINGS.examSubjects : [];
+  document.getElementById('rrName').textContent = a.fullName || '—';
+  document.getElementById('rrCode').textContent = a.code || '—';
+  document.getElementById('rrLevel').textContent = (SCHEDULE[a.level] || SCHEDULE.m1).label;
+  document.getElementById('rrId').textContent = a.idNumber || '—';
+  document.getElementById('rrSubjects').innerHTML = subjects.map(s =>
+    `<tr><td>${esc(s.name)}</td><td>${a[s.key] == null || a[s.key] === '' ? '—' : esc(a[s.key])}</td><td>${esc(s.max)}</td></tr>`
+  ).join('');
+  const maxTotal = subjects.reduce((sum,s)=>sum+Number(s.max||0),0) || 100;
+  document.getElementById('rrTotal').textContent = `${a.total == null || a.total === '' ? '—' : a.total} / ${maxTotal}`;
+  document.getElementById('rrResult').textContent = Number(a.total||0) >= maxTotal*0.5 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์';
+}
 document.getElementById('printTicketBtn').addEventListener('click', ()=>{
   if(!foundApplicant) return;
-  const a = foundApplicant;
-  const h = hashCode(a.idNumber + a.code);
-  document.getElementById('tkName').textContent = a.fullName;
-  document.getElementById('tkLevel').textContent = SCHEDULE[a.level].label;
-  document.getElementById('tkId').textContent = a.idNumber;
-  document.getElementById('tkSched').textContent = SCHEDULE[a.level].sched;
-  document.getElementById('tkCode').textContent = a.code;
+  printApplicantTicket(foundApplicant);
+});
+document.getElementById('printResultBtn').addEventListener('click', ()=>{
+  if(!foundApplicant) return;
+  fillResultReport(foundApplicant);
+  const box=document.getElementById('printResultReport');
+  box.classList.add('printing');
+  window.print();
+  setTimeout(()=>box.classList.remove('printing'),500);
+});
+function printApplicantTicket(a){
+  if(!a) return;
+  const h = hashCode(String(a.idNumber||'') + String(a.code||''));
+  document.getElementById('tkName').textContent = a.fullName || '—';
+  document.getElementById('tkLevel').textContent = (SCHEDULE[a.level] || SCHEDULE.m1).label;
+  document.getElementById('tkId').textContent = a.idNumber || '—';
+  document.getElementById('tkSched').textContent = (SCHEDULE[a.level] || SCHEDULE.m1).sched;
+  document.getElementById('tkCode').textContent = a.code || '—';
   document.getElementById('tkSeat').textContent = a.seat || (100 + (h % 150));
   document.getElementById('tkRoom').textContent = a.room || (1 + (h % 8));
+  const box=document.getElementById('printTicket');
+  box.classList.add('printing');
   window.print();
-});
+  setTimeout(()=>box.classList.remove('printing'),500);
+}
+
 
 /* =======================================================================
    ADMIN CONSOLE
@@ -1758,6 +1835,7 @@ const ADMIN_MENU = [
     {id:'room-create',   ic:'school', label:'สร้างห้องสอบ', sub:'กำหนดห้องและจัดที่นั่ง'},
     {id:'room-review',   ic:'filesearch', label:'รอตรวจสอบ',   sub:'ผังที่นั่งที่รออนุมัติ', count:()=>APP_ROWS.filter(r=>!r.deleted&&r.room&&r.roomStatus!=='approved').length},
     {id:'room-approved', ic:'check', label:'อนุมัติแล้ว',   sub:'ผังที่นั่งที่ประกาศได้', count:()=>APP_ROWS.filter(r=>!r.deleted&&r.roomStatus==='approved').length},
+    {id:'room-lists',    ic:'filetext', label:'รายชื่อห้องสอบ', sub:'ดู/พิมพ์รายชื่อและรายละเอียดห้องสอบ'},
     {id:'room-search',   ic:'search', label:'ค้นหาผู้สมัคร', sub:'ดูห้อง/เลขที่นั่งรายคน'}
   ]},
   {group:'การจัดผลการสอบ', items:[
@@ -1907,6 +1985,8 @@ async function rowAction(act, id){
     case 'room-ok':   return setPatch([id], {roomStatus:'approved'}, 'อนุมัติผังที่นั่งแล้ว');
     case 'room-back': return setPatch([id], {roomStatus:'pending'}, 'ย้ายกลับไปรอตรวจสอบ');
     case 'score':     return openScoreForm(r);
+    case 'report':    if(!r || r.resultStatus !== 'published'){ showToast('ยังไม่มีผลสอบที่ประกาศ'); return; } fillResultReport(r); return window.print();
+    case 'ticket':    if(!r){ return; } return printApplicantTicket(r);
     case 'publish':   return setPatch([id], {resultStatus:'published'}, 'ประกาศผลสอบแล้ว');
     case 'unpublish': return setPatch([id], {resultStatus:'draft'}, 'ยกเลิกการประกาศผลแล้ว');
   }
@@ -2167,26 +2247,36 @@ function exportCSV(rows){
 
 /* ---------- list page factory ---------- */
 function listPage(opt){
-  const rows = APP_ROWS.filter(opt.filter);
+  const baseRows = APP_ROWS.filter(opt.filter);
   const body = document.getElementById('adBody');
   body.innerHTML = `<div class="ad-card">
-      <h4>${opt.title} <span class="pill mute">${rows.length} รายการ</span></h4>
+      <h4>${opt.title} <span class="pill mute" id="listCount">${baseRows.length} รายการ</span></h4>
       <p class="sub">${opt.sub||''}</p>
       <div class="ad-toolbar">
         <input type="search" id="fBox" class="grow" placeholder="🔎 กรองในรายการนี้…">
+        <select id="fLevel"><option value="">ทุกระดับ</option><option value="m1">ม.1</option><option value="m4">ม.4</option></select>
+        <select id="fSort"><option value="none">ไม่เรียง</option><option value="nameAsc">เรียงตามอักษร ก-ฮ</option><option value="nameDesc">เรียงตามอักษร ฮ-ก</option><option value="dateAsc">วันที่สมัคร เก่า→ใหม่</option><option value="dateDesc">วันที่สมัคร ใหม่→เก่า</option><option value="codeAsc">รหัสผู้สมัคร น้อย→มาก</option><option value="codeDesc">รหัสผู้สมัคร มาก→น้อย</option></select>
         <span id="selCount" style="font-size:12.5px;color:var(--ink-soft2)">เลือกแล้ว 0 รายการ</span>
         ${(opt.bulk||[]).map(b => `<button class="btn-sm ${b.cls||''}" data-bulk="${b.act}">${b.label}</button>`).join('')}
         <button class="btn-sm" id="fCsv" type="button">⬇ CSV</button>
       </div>
-      <div id="listHolder">${tbl(rows, opt.cols, opt.actions, {select:true, empty:opt.empty})}</div>
+      <div id="listHolder"></div>
     </div>`;
-  bindTable();
-  document.getElementById('fCsv').onclick = () => exportCSV(rows);
-  document.getElementById('fBox').addEventListener('input', e => {
-    const q = e.target.value.trim();
-    document.getElementById('listHolder').innerHTML = tbl(rows.filter(r => matchQ(r,q)), opt.cols, opt.actions, {select:true, empty:opt.empty});
-    bindTable();
-  });
+  const getRows=()=>{
+    const q=(document.getElementById('fBox')?.value||'').trim();
+    const lv=document.getElementById('fLevel')?.value||'';
+    let rows=baseRows.filter(r=>(!lv||r.level===lv)&&(!q||matchQ(r,q)));
+    const mode=document.getElementById('fSort')?.value||'none';
+    const dir=mode.endsWith('Desc')?-1:1;
+    if(mode.startsWith('name')) rows.sort((a,b)=>String(a.fullName||'').localeCompare(String(b.fullName||''),'th')*dir);
+    if(mode.startsWith('date')) rows.sort((a,b)=>(new Date(a.createdAt||0)-new Date(b.createdAt||0))*dir);
+    if(mode.startsWith('code')) rows.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''))*dir);
+    return rows;
+  };
+  const render=()=>{const rows=getRows();document.getElementById('listCount').textContent=rows.length+' รายการ';document.getElementById('listHolder').innerHTML=tbl(rows,opt.cols,opt.actions,{select:true,empty:opt.empty});bindTable();return rows;};
+  render();
+  document.getElementById('fCsv').onclick=()=>exportCSV(getRows());
+  ['fBox','fLevel','fSort'].forEach(id=>document.getElementById(id).addEventListener(id==='fBox'?'input':'change',render));
   body.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', async () => {
     if(!SELECTED.size){ showToast('กรุณาเลือกรายการก่อน'); return; }
     const ids = [...SELECTED];
@@ -2759,9 +2849,84 @@ PAGES['room-approved'] = () => listPage({
   title:'ผังที่นั่งที่อนุมัติแล้ว', sub:'ข้อมูลนี้จะแสดงบนบัตรประจำตัวผู้เข้าสอบ',
   filter:r => !r.deleted && r.roomStatus === 'approved',
   cols:[COL.code, COL.name, COL.level, COL.room, COL.seat],
-  actions:r => btn('view', r.id, 'ดู') + btn('room-back', r.id, '↩ ทบทวนใหม่'),
+  actions:r => btn('view', r.id, 'ดู') + btn('ticket', r.id, '🎫 บัตรสอบ') + btn('room-back', r.id, '↩ ทบทวนใหม่'),
   bulk:[{act:'room-back', label:'↩ ย้ายกลับไปรอตรวจสอบ'}], empty:'ยังไม่มีผังที่นั่งที่อนุมัติ'
 });
+function roomReportRows(roomName, sortMode){
+  const room = ROOM_ROWS.find(r => r.name === roomName) || {};
+  let rows = APP_ROWS.filter(a => !a.deleted && a.room === roomName);
+  rows = rows.slice().sort((a,b)=>{
+    if(sortMode === 'name') return String(a.fullName||'').localeCompare(String(b.fullName||''),'th');
+    if(sortMode === 'date') return new Date(a.createdAt||0)-new Date(b.createdAt||0);
+    return String(a.code||'').localeCompare(String(b.code||''));
+  });
+  return {room, rows};
+}
+function roomReportHtml(roomName, sortMode){
+  const x = roomReportRows(roomName, sortMode);
+  const room=x.room, rows=x.rows;
+  const exam = room.level && SCHEDULE[room.level] ? SCHEDULE[room.level].sched : '—';
+  return `<div class="room-report-print">
+    <h1>รายชื่อผู้เข้าสอบประจำห้อง</h1>
+    <div style="text-align:center;margin-bottom:10px">WT Pre-Entrance · โรงเรียนวชิรธรรมสาธิต</div>
+    <div class="meta">
+      <div><b>ห้องสอบ:</b> ${esc(room.name||roomName)}</div>
+      <div><b>อาคาร/สถานที่:</b> ${esc(room.build||'—')}</div>
+      <div><b>ระดับชั้น:</b> ${esc(lvTH(room.level)||'—')}</div>
+      <div><b>จำนวนที่นั่ง:</b> ${esc(room.cap||rows.length)}</div>
+      <div><b>วัน-เวลาสอบ:</b> ${esc(exam)}</div>
+      <div><b>จำนวนผู้เข้าสอบ:</b> ${rows.length}</div>
+    </div>
+    <table><thead><tr><th>ลำดับ</th><th>เลขที่นั่ง</th><th>รหัสผู้สมัคร</th><th>ชื่อ-นามสกุล</th><th>ระดับ</th><th>โรงเรียนเดิม</th></tr></thead>
+    <tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.seat||'—')}</td><td>${esc(r.code||'—')}</td><td>${esc(r.fullName||'—')}</td><td>${esc(lvTH(r.level))}</td><td>${esc(r.school||'—')}</td></tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+}
+function downloadOfficeReport(roomName, sortMode, ext, mime){
+  const content = roomReportHtml(roomName, sortMode);
+  const full = `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>รายชื่อห้องสอบ ${roomName}</title><style>body{font-family:Arial,sans-serif;padding:24px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:7px}th{background:#eee}.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:15px 0}</style></head><body>${content}</body></html>`;
+  const blob = new Blob([full], {type:mime});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`รายชื่อห้องสอบ-${String(roomName).replace(/[\\/:*?"<>|]/g,'_')}.${ext}`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function printRoomReport(roomName, sortMode){
+  const content=roomReportHtml(roomName,sortMode);
+  const w=window.open('','_blank','width=1100,height=800');
+  if(!w){showToast('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต Pop-up');return;}
+  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>รายชื่อห้องสอบ</title><style>body{font-family:Arial,sans-serif;padding:24px}h1{text-align:center;font-size:22px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:7px}th{background:#eee}.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:15px 0}@media print{body{padding:0}}</style></head><body>${content}</body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>w.print(),250);
+}
+PAGES['room-lists'] = async () => {
+  ROOM_ROWS = (await DB.rooms()) || [];
+  const body=document.getElementById('adBody');
+  body.innerHTML=`<div class="ad-card"><h4>รายชื่อผู้เข้าสอบแยกตามห้อง</h4>
+    <p class="sub">เลือกห้องเพื่อดูรายชื่อ รายละเอียดห้องสอบ และส่งออกเป็น Word / Excel หรือพิมพ์เป็น PDF</p>
+    <div class="ad-toolbar">
+      <select id="rlRoom" class="grow"><option value="">เลือกห้องสอบ</option>${ROOM_ROWS.map(r=>`<option value="${esc(r.name)}">${esc(r.name)} · ${esc(lvTH(r.level))}</option>`).join('')}</select>
+      <select id="rlSort"><option value="code">เรียงตามรหัสผู้สมัคร</option><option value="name">เรียงตามอักษร</option><option value="date">เรียงตามวันที่สมัคร</option></select>
+      <button class="btn-sm" id="rlWord" type="button">📝 Word</button>
+      <button class="btn-sm" id="rlExcel" type="button">📊 Excel</button>
+      <button class="btn-sm primary" id="rlPdf" type="button">🖨️ PDF / พิมพ์</button>
+    </div>
+    <div id="rlOut" class="ad-card" style="margin-top:12px"><div class="ad-empty">กรุณาเลือกห้องสอบ</div></div>
+  </div>`;
+  const render=()=>{
+    const roomName=document.getElementById('rlRoom').value, sort=document.getElementById('rlSort').value;
+    const out=document.getElementById('rlOut');
+    if(!roomName){out.innerHTML='<div class="ad-empty">กรุณาเลือกห้องสอบ</div>';return;}
+    const x=roomReportRows(roomName,sort);
+    out.innerHTML=`<h4>${esc(x.room.name)} · ${esc(lvTH(x.room.level))}</h4>
+      <p class="sub">${esc(x.room.build||'—')} · รับ ${esc(x.room.cap||'—')} คน · มีรายชื่อ ${x.rows.length} คน · ${esc(SCHEDULE[x.room.level]?.sched||'—')}</p>
+      ${tbl(x.rows,[COL.seat,COL.code,COL.name,COL.level,COL.school],r=>btn('ticket',r.id,'🎫 บัตรสอบ')+btn('view',r.id,'ดู'),{select:false,empty:'ยังไม่มีผู้เข้าสอบที่อนุมัติในห้องนี้'})}`;
+    out.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>rowAction(b.dataset.act,b.dataset.id)));
+  };
+  document.getElementById('rlRoom').onchange=render;
+  document.getElementById('rlSort').onchange=render;
+  document.getElementById('rlWord').onclick=()=>{const n=rlRoom.value;if(n)downloadOfficeReport(n,rlSort.value,'doc','application/msword');};
+  document.getElementById('rlExcel').onclick=()=>{const n=rlRoom.value;if(n)downloadOfficeReport(n,rlSort.value,'xls','application/vnd.ms-excel');};
+  document.getElementById('rlPdf').onclick=()=>{const n=rlRoom.value;if(n)printRoomReport(n,rlSort.value);};
+};
 PAGES['room-search'] = () => searchPage('ค้นหาผู้สมัคร (ห้องสอบ)',
   [COL.code, COL.name, COL.level, COL.room, COL.seat],
   r => btn('edit', r.id, '✏️ แก้ไข') + btn('view', r.id, 'ดู'));
@@ -2792,14 +2957,14 @@ PAGES['res-published'] = () => {
     filter:r => !r.deleted && r.resultStatus === 'published',
     cols:[{h:'ลำดับ', v:r => esc(r.rank||'—')}, COL.code, COL.name, COL.level, COL.total,
       {h:'ผลการสอบ', v:r => Number(r.total||0) >= scoreMaxTotal()*0.5 ? '<span class="pill ok">ผ่านเกณฑ์</span>' : '<span class="pill bad">ไม่ผ่านเกณฑ์</span>'}],
-    actions:r => btn('score', r.id, '✏️ แก้คะแนน') + btn('unpublish', r.id, 'ยกเลิกประกาศ', 'warn'),
+    actions:r => btn('score', r.id, '✏️ แก้คะแนน') + btn('report', r.id, '📄 รายงานคะแนน') + btn('unpublish', r.id, 'ยกเลิกประกาศ', 'warn'),
     bulk:[{act:'unpublish', label:'ยกเลิกประกาศที่เลือก'}], empty:'ยังไม่มีผลสอบที่ประกาศ'
   });
 };
 PAGES['res-search'] = () => searchPage('ค้นหาผู้สมัคร (ผลสอบ)',
   [COL.code, COL.name, COL.level, COL.total,
    {h:'สถานะผล', v:r => `<span class="pill ${r.resultStatus==='published'?'ok':'mute'}">${r.resultStatus==='published'?'ประกาศแล้ว':'ยังไม่ประกาศ'}</span>`}],
-  r => btn('score', r.id, '📝 คะแนน', 'primary') + btn('view', r.id, 'ดู'));
+  r => btn('score', r.id, '📝 คะแนน', 'primary') + btn('report', r.id, '📄 รายงาน') + btn('view', r.id, 'ดู'));
 
 /* extra row actions for dob/id pages */
 const _rowAction = rowAction;
