@@ -331,6 +331,11 @@
   .ticket .seat-box .num{font-size:24px; font-weight:700; color:var(--rose-deep);}
   .ticket .seat-box .lbl{font-size:12px; color:var(--ink-soft2);}
   .ticket .code{text-align:center; margin-top:16px; font-size:13px; letter-spacing:2px; color:var(--ink-soft2);}
+  .result-report{border:2px solid var(--rose-deep);border-radius:16px;padding:24px;max-width:760px;margin:0 auto;font-family:'Prompt';}
+  .result-report h2{text-align:center;color:var(--rose-deep);margin-bottom:6px}.result-report .muted{color:var(--ink-soft2);text-align:center;font-size:13px}
+  .result-report .rmeta{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;margin:18px 0}
+  .result-report .rmeta div{padding:7px 0;border-bottom:1px dotted var(--rose-pale)}
+  .result-report .rmeta b{display:inline-block;min-width:120px;color:var(--ink-soft2)}
 
   @media (prefers-reduced-motion:reduce){ *{transition:none !important; scroll-behavior:auto !important;} }
 
@@ -600,12 +605,12 @@
     </form>
 
     <section class="section-block" id="portal">
-      <div class="sec-head"><div class="sec-num">5</div><h2>ตรวจสอบสถานะ / พิมพ์บัตรประจำตัวสอบ</h2></div>
-      <p class="sec-sub">กรอกเลขบัตรประชาชน (หรือเลขหนังสือเดินทาง/G-code สำหรับนักเรียนต่างชาติ) ที่ใช้ตอนสมัคร</p>
+      <div class="sec-head"><div class="sec-num">5</div><h2>ตรวจสอบสถานะ / ผลสอบ / พิมพ์รายงาน</h2></div>
+      <p class="sec-sub">กรอกเลขบัตรประชาชนหรือเลขหนังสือเดินทางที่ใช้ตอนสมัคร เพื่อดูสถานะและผลสอบ (เมื่อโรงเรียนเปิดประกาศผล)</p>
       <div class="card">
         <div class="portal-box">
           <input type="text" id="portalIdInput" placeholder="กรอกเลขบัตรประชาชน / พาสปอร์ต">
-          <button class="btn btn-primary" type="button" id="portalCheckBtn">ตรวจสอบสถานะ</button>
+          <button class="btn btn-primary" type="button" id="portalCheckBtn">ตรวจสอบผลสอบ / สถานะ</button>
         </div>
         <div class="status-card" id="statusCard">
           <div class="status-badge">✓ ลงทะเบียนสำเร็จ — รอตรวจสอบเอกสาร</div>
@@ -615,6 +620,7 @@
           <div class="status-row"><span>วันที่สมัคร</span><span id="stDate"></span></div>
           <div class="form-actions" style="margin-top:14px;">
             <button class="btn btn-primary" type="button" id="printTicketBtn">🖨️ พิมพ์บัตรประจำตัวสอบ</button>
+             <button class="btn btn-outline" type="button" id="printResultBtn" style="display:none">📄 พิมพ์รายงานผลสอบ</button>
           </div>
         </div>
       </div>
@@ -696,6 +702,23 @@
     <p class="code">กรุณานำบัตรนี้มาแสดงในวันสอบพร้อมบัตรประชาชน</p>
   </div>
 </div>
+<div id="printResultReport" style="display:none">
+  <div class="result-report">
+    <h2>รายงานผลการสอบ</h2>
+    <div class="muted">WT Pre-Entrance · โรงเรียนวชิรธรรมสาธิต</div>
+    <div class="rmeta">
+      <div><b>ชื่อ-นามสกุล</b><span id="rrName">—</span></div>
+      <div><b>รหัสผู้สมัคร</b><span id="rrCode">—</span></div>
+      <div><b>ระดับที่สมัคร</b><span id="rrLevel">—</span></div>
+      <div><b>เลขบัตร/พาสปอร์ต</b><span id="rrId">—</span></div>
+    </div>
+    <table class="report-table"><thead><tr><th>รายวิชา</th><th>คะแนน</th><th>เต็ม</th></tr></thead><tbody id="rrSubjects"></tbody></table>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px">
+      <span>คะแนนรวม</span><span class="report-total" id="rrTotal">—</span>
+    </div>
+    <div style="text-align:center;margin-top:12px;font-weight:600" id="rrResult">—</div>
+  </div>
+</div>
 
 <script>
 /* =======================================================================
@@ -762,8 +785,8 @@ const D = {
 "แตะเพื่อเลือกไฟล์ หรือถ่ายภาพสลิป":"Tap to choose a file or take a photo of the slip",
 "รองรับไฟล์ JPG, PNG (ขนาดไม่เกิน 5 MB)":"JPG and PNG supported (max 5 MB)",
 "ล้างข้อมูล":"Clear form","ส่งใบสมัคร":"Submit application",
-"ตรวจสอบสถานะ / พิมพ์บัตรประจำตัวสอบ":"Check status / Print admission ticket",
-"กรอกเลขบัตรประชาชน (หรือเลขหนังสือเดินทาง/G-code สำหรับนักเรียนต่างชาติ) ที่ใช้ตอนสมัคร":"Enter the ID number you applied with (or passport / G-code for international students).",
+"ตรวจสอบสถานะ / ผลสอบ / พิมพ์รายงาน":"Check status / Print admission ticket",
+"กรอกเลขบัตรประชาชนหรือเลขหนังสือเดินทางที่ใช้ตอนสมัคร เพื่อดูสถานะและผลสอบ (เมื่อโรงเรียนเปิดประกาศผล)":"Enter the ID number you applied with (or passport / G-code for international students).",
 "ตรวจสอบสถานะ":"Check status",
 "ลงทะเบียนสำเร็จ — รอตรวจสอบเอกสาร":"Registered — awaiting document review",
 "ชื่อ-นามสกุล":"Full name","ระดับชั้นที่สมัคร":"Level applied","รหัสผู้สมัคร":"Applicant code","วันที่สมัคร":"Application date",
@@ -1209,7 +1232,8 @@ const DEFAULT_SETTINGS = {
   deadline:'2026-11-08T23:59', fee:300,
   bankName:'ธนาคารกรุงศรีอยุธยา (BAY)', bankAccount:'XXX-X-XXXXX-X', bankOwner:'โรงเรียนวชิรธรรมสาธิต (งานวิชาการ)',
   examM1:'วันเสาร์ที่ 14 พ.ย. 2569 · 08.30–11.40 น.', examM4:'วันอาทิตย์ที่ 15 พ.ย. 2569 · 08.30–11.40 น.',
-  openRegister:true, showResult:false, adminPass:'wt2569', contact:'งานวิชาการ โทร. 0-2393-xxxx'
+  openRegister:true, showResult:false, resultPortalEnabled:true, adminPass:'wt2569', contact:'งานวิชาการ โทร. 0-2393-xxxx',
+  examSubjects:[{key:'sTh',name:'ภาษาไทย',max:25},{key:'sMa',name:'คณิตศาสตร์',max:25},{key:'sSc',name:'วิทยาศาสตร์',max:25},{key:'sEn',name:'ภาษาอังกฤษ',max:25}]
 };
 
 /* ชั้นกลาง: เรียก API ก่อน ถ้าไม่ได้ใช้ข้อมูลในเครื่อง */
@@ -1584,6 +1608,10 @@ const APP_STATUS_PUBLIC = {
 const PAY_STATUS_PUBLIC = {unpaid:'รอชำระเงิน', review:'รออนุมัติการชำระ', fix:'ต้องแก้ไขหลักฐานการชำระ', paid:'ชำระเงินแล้ว'};
 
 document.getElementById('portalCheckBtn').addEventListener('click', async ()=>{
+  if(SETTINGS.resultPortalEnabled === false){
+    showToast('ระบบตรวจสอบผลสอบถูกปิดชั่วคราว');
+    return;
+  }
   const val = document.getElementById('portalIdInput').value.trim();
   if(!val){ showToast('กรุณากรอกเลขบัตรประชาชนหรือพาสปอร์ต'); return; }
   const card = document.getElementById('statusCard');
@@ -1615,18 +1643,27 @@ document.getElementById('portalCheckBtn').addEventListener('click', async ()=>{
   if(found.roomStatus === 'approved'){
     rows.push(['ห้องสอบ', found.room || '—'], ['เลขที่นั่งสอบ', found.seat || '—']);
   }
-  if(found.resultStatus === 'published'){
-    rows.push(['คะแนนรวม', (found.total ?? '—') + ' / 100'],
-              ['ผลการสอบ', Number(found.total||0) >= 50 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์']);
+  const resultEnabled = SETTINGS.resultPortalEnabled !== false && SETTINGS.showResult === true;
+  if(resultEnabled && found.resultStatus === 'published'){
+    const subjects = Array.isArray(SETTINGS.examSubjects) ? SETTINGS.examSubjects : [];
+    subjects.forEach(s => {
+      if(found[s.key] !== '' && found[s.key] != null) rows.push([s.name, String(found[s.key]) + ' / ' + s.max]);
+    });
+    const maxTotal = subjects.reduce((sum,s)=>sum+Number(s.max||0),0) || 100;
+    rows.push(['คะแนนรวม', (found.total ?? '—') + ' / ' + maxTotal],
+              ['ผลการสอบ', Number(found.total||0) >= maxTotal*0.5 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์']);
   }
   if(found.note) rows.push(['หมายเหตุจากเจ้าหน้าที่', found.note]);
   extra.innerHTML = rows.map(([k,v]) =>
     `<div class="status-row"><span>${k}</span><span>${String(v)}</span></div>`).join('');
 
   const printBtn = document.getElementById('printTicketBtn');
+  const resultBtn = document.getElementById('printResultBtn');
   const canPrint = found.appStatus === 'approved' && found.payStatus === 'paid';
   printBtn.style.display = canPrint ? '' : 'none';
-  if(!canPrint) showToast('พิมพ์บัตรสอบได้เมื่อใบสมัครและการชำระเงินได้รับการอนุมัติแล้ว');
+  const canPrintResult = resultEnabled && found.resultStatus === 'published';
+  resultBtn.style.display = canPrintResult ? '' : 'none';
+  if(!canPrint && !canPrintResult) showToast('ข้อมูลสำหรับพิมพ์ยังไม่พร้อม');
   card.classList.add('show');
 });
 document.getElementById('printTicketBtn').addEventListener('click', ()=>{
@@ -1678,6 +1715,7 @@ const ADMIN_MENU = [
   {group:'ตั้งค่าระบบ', items:[
     {id:'settings',  ic:'sliders', label:'ตั้งค่าข้อมูลระบบ', sub:'ข้อมูลโรงเรียน ค่าสมัคร บัญชีรับเงิน'},
     {id:'courses',   ic:'book', label:'จัดการหลักสูตร',   sub:'ระดับชั้น/วิชาที่เปิดสอบ'},
+    {id:'exam-subjects', ic:'filetext', label:'ตั้งค่าวิชาสอบ', sub:'กำหนดรายวิชาและคะแนนเต็ม'},
     {id:'news',      ic:'megaphone', label:'ข่าวประชาสัมพันธ์', sub:'ประกาศที่แสดงหน้าเว็บ'},
     {id:'stats',     ic:'chart', label:'ข้อมูลทางสถิติ',    sub:'สรุปผลการสมัครและการชำระเงิน'},
     {id:'slides',    ic:'image', label:'ภาพสไลด์หน้าแรก',   sub:'เพิ่ม เปลี่ยน และจัดเรียงภาพสไลด์'}
@@ -1996,25 +2034,76 @@ function openPayForm(r){
     closeModal(); await setPatch([r.id], patch, 'บันทึกข้อมูลการชำระแล้ว');
   };
 }
-const SUBJECTS = [['sTh','ภาษาไทย'],['sMa','คณิตศาสตร์'],['sSc','วิทยาศาสตร์'],['sEn','ภาษาอังกฤษ']];
+function getExamSubjects(){
+  const s=Array.isArray(SETTINGS.examSubjects)?SETTINGS.examSubjects:[];
+  return s.length?s:[{key:'sTh',name:'ภาษาไทย',max:25},{key:'sMa',name:'คณิตศาสตร์',max:25},{key:'sSc',name:'วิทยาศาสตร์',max:25},{key:'sEn',name:'ภาษาอังกฤษ',max:25}];
+}
+function scoreMaxTotal(){ return getExamSubjects().reduce((n,s)=>n+Number(s.max||0),0); }
+function scoreForRow(r){
+  return getExamSubjects().reduce((n,s)=>n+Number(r[s.key]||0),0);
+}
 function openScoreForm(r){
+  const subjects=getExamSubjects();
   openModal(`<h3>กรอกคะแนน — ${esc(r.fullName||'')} (${esc(r.code||'')})</h3>
-    <div class="ad-form-grid">${SUBJECTS.map(([k,l]) =>
-      `<div class="ad-f"><label>${l} (เต็ม 25)</label><input type="number" min="0" max="25" data-s="${k}" value="${esc(r[k]??'')}"></div>`).join('')}</div>
+    <div class="ad-form-grid">${subjects.map(s =>
+      `<div class="ad-f"><label>${esc(s.name)} (เต็ม ${esc(s.max)})</label><input type="number" min="0" max="${Number(s.max)}" step="0.01" data-s="${esc(s.key)}" value="${esc(r[s.key]??'')}"></div>`).join('')}</div>
+    <div class="note-banner">คะแนนรวมเต็ม ${scoreMaxTotal()} คะแนน</div>
     <div class="ad-toolbar" style="margin-top:14px">
       <button class="btn-sm primary" id="mSave" type="button">💾 บันทึกคะแนน</button>
       <button class="btn-sm ok" id="mSavePub" type="button">💾 บันทึกและประกาศผล</button>
       <button class="btn-sm" id="mCancel" type="button">ยกเลิก</button></div>`);
-  document.getElementById('mCancel').onclick = closeModal;
-  const save = async publish => {
-    const patch = {}; let total = 0;
-    document.querySelectorAll('#adModalBody [data-s]').forEach(i => { patch[i.dataset.s] = i.value; total += Number(i.value||0); });
-    patch.total = total;
-    patch.resultStatus = publish ? 'published' : 'draft';
-    closeModal(); await setPatch([r.id], patch, publish ? 'บันทึกและประกาศผลแล้ว' : 'บันทึกคะแนนแล้ว');
+  document.getElementById('mCancel').onclick=closeModal;
+  const save=async publish=>{
+    const patch={}; let total=0;
+    document.querySelectorAll('#adModalBody [data-s]').forEach(i=>{
+      const s=subjects.find(x=>x.key===i.dataset.s), val=i.value===''?'':Number(i.value);
+      if(val!=='' && (val<0 || val>Number(s.max))){ i.focus(); throw new Error(`คะแนน ${s.name} ต้องอยู่ระหว่าง 0-${s.max}`); }
+      patch[i.dataset.s]=val; total+=Number(val||0);
+    });
+    patch.total=total; patch.resultStatus=publish?'published':'draft';
+    closeModal(); await setPatch([r.id],patch,publish?'บันทึกและประกาศผลแล้ว':'บันทึกคะแนนแล้ว');
   };
-  document.getElementById('mSave').onclick    = () => save(false);
-  document.getElementById('mSavePub').onclick = () => save(true);
+  document.getElementById('mSave').onclick=()=>save(false).catch(e=>showToast(e.message));
+  document.getElementById('mSavePub').onclick=()=>save(true).catch(e=>showToast(e.message));
+}
+function openBulkScoreEntry(){
+  const rows=APP_ROWS.filter(r=>!r.deleted&&r.appStatus==='approved');
+  const subjects=getExamSubjects();
+  const head=subjects.map(s=>`<th>${esc(s.name)}<br><small>เต็ม ${esc(s.max)}</small></th>`).join('');
+  document.getElementById('adBody').innerHTML=`<div class="ad-card">
+    <h4>กรอกคะแนนหลายคนพร้อมกัน <span class="pill mute">${rows.length} คน</span></h4>
+    <p class="sub">กรอกคะแนนในตารางได้ทันที กด Tab เพื่อเลื่อนไปช่องถัดไป แล้วบันทึกครั้งเดียว</p>
+    <div class="ad-toolbar"><input id="bulkScoreSearch" class="grow" placeholder="🔎 ค้นหาชื่อ / รหัส / เลขบัตร">
+      <button class="btn-sm primary" id="bulkSave" type="button">💾 บันทึกทั้งหมด</button>
+      <button class="btn-sm ok" id="bulkPublish" type="button">📢 บันทึกและประกาศทั้งหมด</button></div>
+    <div class="score-bulk-wrap"><table class="score-bulk"><thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th>${head}<th>รวม</th></tr></thead><tbody id="bulkScoreBody"></tbody></table></div>
+  </div>`;
+  const body=document.getElementById('bulkScoreBody');
+  const draw=q=>{
+    const list=rows.filter(r=>matchQ(r,q||''));
+    body.innerHTML=list.map(r=>`<tr data-id="${esc(r.id)}"><td><b>${esc(r.code)}</b></td><td>${esc(r.fullName)}</td>
+      ${subjects.map(s=>`<td><input type="number" min="0" max="${Number(s.max)}" step="0.01" data-score="${esc(s.key)}" value="${esc(r[s.key]??'')}"></td>`).join('')}
+      <td class="score-total" data-total>${scoreForRow(r)}</td></tr>`).join('');
+    body.querySelectorAll('input[data-score]').forEach(inp=>inp.addEventListener('input',()=>{
+      const tr=inp.closest('tr'); let total=0; subjects.forEach(s=>{const el=tr.querySelector(`[data-score="${s.key}"]`); total+=Number(el&&el.value||0)}); tr.querySelector('[data-total]').textContent=total;
+    }));
+  };
+  draw('');
+  document.getElementById('bulkScoreSearch').oninput=e=>draw(e.target.value.trim());
+  const saveAll=async publish=>{
+    const updates=[];
+    body.querySelectorAll('tr[data-id]').forEach(tr=>{
+      const patch={}; let total=0; let invalid=false;
+      subjects.forEach(s=>{const el=tr.querySelector(`[data-score="${s.key}"]`); const v=el&&el.value!==''?Number(el.value):''; if(v!==''&&(v<0||v>Number(s.max))) invalid=true; patch[s.key]=v; total+=Number(v||0);});
+      if(invalid) throw new Error('พบคะแนนเกินคะแนนเต็ม กรุณาตรวจสอบก่อนบันทึก');
+      patch.total=total; patch.resultStatus=publish?'published':'draft'; updates.push({id:tr.dataset.id,patch});
+    });
+    await api('bulkPatchApplicants',{updates});
+    APP_ROWS=APP_ROWS.map(r=>{const u=updates.find(x=>x.id===r.id);return u?Object.assign(r,u.patch):r;});
+    showToast(`บันทึกคะแนน ${updates.length} คนแล้ว`); goPage(CUR_PAGE);
+  };
+  document.getElementById('bulkSave').onclick=()=>saveAll(false).catch(e=>showToast(e.message));
+  document.getElementById('bulkPublish').onclick=()=>saveAll(true).catch(e=>showToast(e.message));
 }
 
 /* ---------- search helpers ---------- */
@@ -2326,6 +2415,39 @@ PAGES.slides = async () => {
   setSlideRows(rows); drawSlideAdmin();
 };
 
+PAGES['exam-subjects'] = () => {
+  const subjects=getExamSubjects().map(s=>Object.assign({},s));
+  const body=document.getElementById('adBody');
+  const draw=()=>{
+    body.innerHTML=`<div class="ad-card"><h4>ตั้งค่ารายวิชาที่สอบ</h4>
+      <p class="sub">เพิ่ม/ลบ/เปลี่ยนชื่อรายวิชาและคะแนนเต็มได้ โดยคะแนนของผู้สมัครจะใช้คีย์ของวิชาที่บันทึกไว้</p>
+      <div id="subjectEditor">${subjects.map((s,i)=>`<div class="subject-row" data-i="${i}">
+        <div><input data-field="name" value="${esc(s.name)}" placeholder="ชื่อรายวิชา"><div class="key">${esc(s.key)}</div></div>
+        <input data-field="max" type="number" min="1" step="0.01" value="${esc(s.max)}" placeholder="คะแนนเต็ม">
+        <button class="btn-sm dgr" type="button" data-del-sub="${i}">ลบ</button>
+      </div>`).join('')}</div>
+      <div class="ad-toolbar"><button class="btn-sm" id="subAdd" type="button">＋ เพิ่มรายวิชา</button>
+      <button class="btn-sm primary" id="subSave" type="button">💾 บันทึกรายวิชา</button></div>
+      <div class="note-banner">คำแนะนำ: เปลี่ยนชื่อ/คะแนนได้ แต่ไม่ควรลบวิชาหลังเริ่มกรอกคะแนนจริง เพราะข้อมูลคะแนนเดิมของวิชานั้นจะยังอยู่ในฐานข้อมูล</div>
+    </div>`;
+    body.querySelectorAll('[data-del-sub]').forEach(b=>b.onclick=()=>{subjects.splice(Number(b.dataset.delSub),1);draw();});
+    document.getElementById('subAdd').onclick=()=>{
+      let n=subjects.length+1, key='s'+n; while(subjects.some(x=>x.key===key)){n++;key='s'+n;}
+      subjects.push({key,name:'วิชาใหม่',max:25}); draw();
+    };
+    document.getElementById('subSave').onclick=async()=>{
+      const out=[];
+      body.querySelectorAll('.subject-row').forEach((row,i)=>{
+        const name=row.querySelector('[data-field="name"]').value.trim();
+        const max=Number(row.querySelector('[data-field="max"]').value||0);
+        if(name && max>0) out.push({key:subjects[i].key,name,max});
+      });
+      if(!out.length){showToast('ต้องมีอย่างน้อย 1 รายวิชา');return;}
+      SETTINGS.examSubjects=out; await DB.saveSettings(SETTINGS); showToast('บันทึกรายวิชาเรียบร้อย'); goPage('exam-subjects');
+    };
+  };
+  draw();
+};
 function crudPage(kind){
   const isNews = kind === 'news';
   const rows = (isNews ? NEWS_ROWS : COURSE_ROWS);
@@ -2618,15 +2740,22 @@ PAGES['room-search'] = () => searchPage('ค้นหาผู้สมัคร
   r => btn('edit', r.id, '✏️ แก้ไข') + btn('view', r.id, 'ดู'));
 
 /* ---- results ---- */
-PAGES['res-manage'] = () => listPage({
-  title:'จัดการผลการสอบ', sub:'กรอกคะแนนรายวิชา (วิชาละ 25 คะแนน) แล้วกดประกาศผล',
-  filter:r => !r.deleted && r.appStatus === 'approved',
-  cols:[COL.code, COL.name, COL.level, COL.room, COL.seat, COL.total,
-    {h:'สถานะผล', v:r => `<span class="pill ${r.resultStatus==='published'?'ok':'mute'}">${r.resultStatus==='published'?'ประกาศแล้ว':(r.resultStatus==='draft'?'ร่าง':'ยังไม่กรอก')}</span>`}],
-  actions:r => btn('score', r.id, '📝 กรอกคะแนน', 'primary') + (r.resultStatus==='published' ? btn('unpublish', r.id, 'ยกเลิกประกาศ') : btn('publish', r.id, '📢 ประกาศผล', 'ok')),
-  bulk:[{act:'publish', label:'📢 ประกาศผลที่เลือก', cls:'ok'}, {act:'unpublish', label:'ยกเลิกประกาศ'}],
-  empty:'ยังไม่มีผู้สมัครที่อนุมัติสำหรับกรอกผลสอบ'
-});
+PAGES['res-manage'] = () => {
+  listPage({
+    title:'จัดการผลการสอบ', sub:'กรอกคะแนนรายวิชาและประกาศผล',
+    filter:r => !r.deleted && r.appStatus === 'approved',
+    cols:[COL.code, COL.name, COL.level, COL.room, COL.seat, COL.total,
+      {h:'สถานะผล', v:r => `<span class="pill ${r.resultStatus==='published'?'ok':'mute'}">${r.resultStatus==='published'?'ประกาศแล้ว':(r.resultStatus==='draft'?'ร่าง':'ยังไม่กรอก')}</span>`}],
+    actions:r => btn('score', r.id, '📝 กรอกคะแนน', 'primary') + (r.resultStatus==='published' ? btn('unpublish', r.id, 'ยกเลิกประกาศ') : btn('publish', r.id, '📢 ประกาศผล', 'ok')),
+    bulk:[{act:'publish', label:'📢 ประกาศผลที่เลือก', cls:'ok'}, {act:'unpublish', label:'ยกเลิกประกาศ'}],
+    empty:'ยังไม่มีผู้สมัครที่อนุมัติสำหรับกรอกผลสอบ'
+  });
+  const bar=document.querySelector('#adBody .ad-toolbar');
+  if(bar){
+    const b=document.createElement('button'); b.className='btn-sm primary'; b.type='button'; b.textContent='⚡ กรอกคะแนนหลายคน';
+    b.onclick=openBulkScoreEntry; bar.insertBefore(b,bar.firstChild);
+  }
+};
 PAGES['res-published'] = () => {
   const rows = APP_ROWS.filter(r => !r.deleted && r.resultStatus === 'published')
     .sort((a,b) => Number(b.total||0) - Number(a.total||0));
@@ -2635,7 +2764,7 @@ PAGES['res-published'] = () => {
     title:'ผลสอบที่ประกาศแล้ว', sub:'เรียงตามคะแนนรวมจากมากไปน้อย',
     filter:r => !r.deleted && r.resultStatus === 'published',
     cols:[{h:'ลำดับ', v:r => esc(r.rank||'—')}, COL.code, COL.name, COL.level, COL.total,
-      {h:'ผลการสอบ', v:r => Number(r.total||0) >= 50 ? '<span class="pill ok">ผ่านเกณฑ์</span>' : '<span class="pill bad">ไม่ผ่านเกณฑ์</span>'}],
+      {h:'ผลการสอบ', v:r => Number(r.total||0) >= scoreMaxTotal()*0.5 ? '<span class="pill ok">ผ่านเกณฑ์</span>' : '<span class="pill bad">ไม่ผ่านเกณฑ์</span>'}],
     actions:r => btn('score', r.id, '✏️ แก้คะแนน') + btn('unpublish', r.id, 'ยกเลิกประกาศ', 'warn'),
     bulk:[{act:'unpublish', label:'ยกเลิกประกาศที่เลือก'}], empty:'ยังไม่มีผลสอบที่ประกาศ'
   });
@@ -2673,6 +2802,7 @@ document.getElementById('adModalBack').addEventListener('click', e => { if(e.tar
 /* ---------- apply settings to public site ---------- */
 function applySettingsToSite(){
   const s = SETTINGS;
+  if(!Array.isArray(s.examSubjects) || !s.examSubjects.length) s.examSubjects = DEFAULT_SETTINGS.examSubjects;
   if(s.deadline){
     const dl = new Date(s.deadline);
     if(!isNaN(dl)){
